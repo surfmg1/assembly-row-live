@@ -14,6 +14,7 @@ async function open(viewport, opts = {}) {
   page.on('pageerror', e => errors.push(String(e)));
   await page.route('**/*', r => r.request().url().startsWith('http://lab.test/') ? r.fulfill({ contentType: 'text/html', body: html }) : r.abort());
   await page.goto('http://lab.test/'); await page.waitForFunction(() => !!window.__lab, null, { timeout: 30000 });
+  await page.evaluate(q => window.__lab.quality(q), process.env.Q || 'high');
   return { ctx, page };
 }
 const view = (page, x, y, z, yaw, pitch = 0.3) => page.evaluate(([x, y, z, yaw, pitch]) => { const l = window.__lab; Object.assign(l.p, { x, y, z, yaw, vx: 0, vy: 0, vz: 0, grounded: true, mode: 'foot', state: 'normal' }); l.p.tow.rope = false; l.p.tow.active = false; l.p.safe = [x, y, z, yaw]; l.p.safeOld = [x, y, z, yaw]; l.cam.yaw = yaw; l.cam.user = 0; l.cam.pitch = pitch; }, [x, y, z, yaw, pitch]);
@@ -23,6 +24,12 @@ const d = await open({ width: 960, height: 540 }); const p = d.page;
 const N = -Math.PI / 2, S = Math.PI / 2;
 const sets = {
   menu: async () => { await shot(p, 'menu', 1200); },
+  quick: async () => {
+    await go(p, 'summer', 'sunny', 0); await view(p, 0, 0, -62, S, 0.2); await shot(p, 'q-summer-row', 1500);
+    await view(p, 0, 0, -128, S, 0.12); await shot(p, 'q-summer-trusses');
+    await go(p, 'winter', 'snowy', 3); await p.keyboard.down('KeyW'); await shot(p, 'q-winter-tow', 5000); await p.keyboard.up('KeyW');
+    await go(p, 'fall', 'sunny', 1); await view(p, -50, 0, -128, 0.2, 0.25); await shot(p, 'q-fall-park');
+  },
   winter: async () => {
     await go(p, 'winter', 'snowy', 3); await p.keyboard.down('KeyW'); await shot(p, 'winter-tow', 5500); await p.keyboard.up('KeyW');
     await go(p, 'winter', 'sunny', 3); await p.keyboard.down('KeyW'); await p.keyboard.down('KeyA'); await p.waitForTimeout(4200); await p.keyboard.up('KeyA'); await shot(p, 'winter-sunny-tow', 600); await p.keyboard.up('KeyW');

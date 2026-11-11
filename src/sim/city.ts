@@ -7,7 +7,7 @@ import {
 } from './world';
 
 /** Render material ids, shared with the shader. */
-export const M = { PAVE: 0, PLAIN: 1, WATER: 2, FACADE: 3, ASPHALT: 4, GRASS: 5, LEAF: 6, EMIS: 7, BRICK: 8, GLASS: 9, SNOWY: 11 };
+export const M = { PAVE: 0, PLAIN: 1, WATER: 2, FACADE: 3, ASPHALT: 4, GRASS: 5, LEAF: 6, EMIS: 7, BRICK: 8, GLASS: 9, SNOWY: 11, WINDOW: 12, PAINT: 13, METAL: 14, PARTICLE: 15, RAIN: 16 };
 
 const ASPHALT = [0.30, 0.31, 0.34], PAVE = [0.74, 0.73, 0.72], BRICKPAVE = [0.62, 0.42, 0.36], SAND = [0.84, 0.76, 0.58];
 const BRICK = [0.62, 0.30, 0.24], ORANGEBRICK = [0.80, 0.50, 0.30], TAN = [0.80, 0.70, 0.54], CREAM = [0.90, 0.88, 0.82], PANEL = [0.66, 0.69, 0.74];
@@ -40,7 +40,7 @@ export function buildCity(env: Env = makeEnv('summer', 'sunny')): World {
     signs.push({ text, x, y, z, face, h, color, bg, glow });
   const tree = (x: number, z: number, h = 7, y = 0.1, lights = false) => {
     trees.push({ x, z, y, h, lights });
-    box(x - 0.2, x + 0.2, y, y + h * 0.42, z - 0.2, z + 0.2, TRUNK, M.PLAIN, { surf: 'wood' });
+    box(x - 0.2, x + 0.2, y, y + h * 0.42, z - 0.2, z + 0.2, TRUNK, M.PLAIN, { surf: 'wood', hide: true });
   };
   const lamp = (x: number, z: number, y = 0.1) => lamps.push([x, y, z]);
   const park = (x: number, z: number, yaw: number, hue: number) => {
@@ -80,7 +80,7 @@ export function buildCity(env: Env = makeEnv('summer', 'sunny')): World {
   bld(-80, -18, -111, -99, 22, BRICK, M.BRICK); bld(-80, -18, -82, -70, 22, BRICK, M.BRICK);
   bld(-80, -68, -99, -82, 22, ORANGEBRICK, M.BRICK); bld(-30, -18, -99, -82, 22, ORANGEBRICK, M.BRICK);
   dec(-68, -30, 0.1, 0.16, -99, -82, GRASS, M.GRASS);
-  box(-18, -15.6, 3.3, 3.6, -111, -97, BLACK, M.PLAIN); sign('EARLS', -17.9, 5.0, -104, 0, 1.3, '#ffffff'); sign('KITCHEN + BAR', -17.9, 4.1, -104, 0, 0.5, '#d8d8d8');
+  box(-18, -15.6, 3.3, 3.6, -111, -97, BLACK, M.METAL); sign('EARLS', -17.9, 5.0, -104, 0, 1.3, '#ffffff'); sign('KITCHEN + BAR', -17.9, 4.1, -104, 0, 0.5, '#d8d8d8');
   // Row A, east: L-shaped white office with a solar roof; café in the nook.
   bld(18, 54, -111, -95, 20, CREAM); bld(38, 54, -95, -70, 20, CREAM);
   dec(20, 52, 20, 20.15, -109, -97, SOLAR, M.PLAIN); dec(40, 52, 20, 20.15, -93, -72, SOLAR, M.PLAIN);
@@ -91,8 +91,8 @@ export function buildCity(env: Env = makeEnv('summer', 'sunny')): World {
   box(-2.2, -0.4, 0.1, 1.4, -86.2, -84.8, WOOD, M.PLAIN, { surf: 'wood' }); box(-0.4, 2.2, 0.1, 3.0, -88, -86.2, [0.22, 0.24, 0.27], M.PLAIN);
   tree(0, -81, 7); tree(0, -74, 7.5);
   for (const [tx, tz] of [[-2.6, -79], [2.6, -79], [-2.6, -72], [2.6, -72]]) {
-    dec(tx - 0.5, tx + 0.5, 0.82, 0.86, tz - 0.5, tz + 0.5, BLACK, M.PLAIN); dec(tx - 0.04, tx + 0.04, 0.1, 0.82, tz - 0.04, tz + 0.04, BLACK, M.PLAIN);
-    if (warm) { dec(tx - 0.03, tx + 0.03, 0.86, 2.5, tz - 0.03, tz + 0.03, STEEL, M.PLAIN); dec(tx - 1.2, tx + 1.2, 2.5, 2.62, tz - 1.2, tz + 1.2, WHITE, M.PLAIN); }
+    dec(tx - 0.5, tx + 0.5, 0.82, 0.86, tz - 0.5, tz + 0.5, BLACK, M.METAL); dec(tx - 0.04, tx + 0.04, 0.1, 0.82, tz - 0.04, tz + 0.04, BLACK, M.METAL);
+    if (warm) { dec(tx - 0.03, tx + 0.03, 0.86, 2.5, tz - 0.03, tz + 0.03, STEEL, M.METAL); dec(tx - 1.2, tx + 1.2, 2.5, 2.62, tz - 1.2, tz + 1.2, WHITE, M.PLAIN); }
   }
 
   // Row B, west: the white outlet building. The brick giraffe stands at its north-east corner.
@@ -147,10 +147,10 @@ export function buildCity(env: Env = makeEnv('summer', 'sunny')): World {
   ramp(3, 95, 101, 1.1, 5.5, 88, 106); box(94, 102, 0, 1.1, 88, 150, PAVE, M.PAVE);
   dec(94, 94.5, 1.1, 1.13, 106, 150, YELLOW, M.PLAIN); dec(101.5, 102, 1.1, 1.13, 106, 150, YELLOW, M.PLAIN);
   dec(94, 102, 4.9, 5.05, 110, 148, WHITE); dec(93.9, 102.1, 5.05, 5.2, 109.9, 148.1, ORANGE, M.PLAIN);
-  for (let z = 112; z <= 146; z += 11) dec(97.85, 98.15, 1.1, 4.9, z - 0.15, z + 0.15, STEEL, M.PLAIN);
+  for (let z = 112; z <= 146; z += 11) dec(97.85, 98.15, 1.1, 4.9, z - 0.15, z + 0.15, STEEL, M.METAL);
   dec(76, 116, 5.5, 6.6, 79.9, 80.05, ORANGE, M.PLAIN); dec(76, 116, 5.5, 6.6, 87.95, 88.1, ORANGE, M.PLAIN);
-  dec(76, 86, 8.6, 8.9, 79, 89, GLASS, M.PLAIN); for (const x of [76.3, 85.7]) for (const z of [79.3, 88.7]) dec(x - 0.15, x + 0.15, 5.5, 8.6, z - 0.15, z + 0.15, STEEL, M.PLAIN);
-  for (const x of [80, 114]) dec(x - 0.3, x + 0.3, 0, 5.1, 83.7, 84.3, STEEL, M.PLAIN);
+  dec(76, 86, 8.6, 8.9, 79, 89, GLASS, M.PLAIN); for (const x of [76.3, 85.7]) for (const z of [79.3, 88.7]) dec(x - 0.15, x + 0.15, 5.5, 8.6, z - 0.15, z + 0.15, STEEL, M.METAL);
+  for (const x of [80, 114]) dec(x - 0.3, x + 0.3, 0, 5.1, 83.7, 84.3, STEEL, M.METAL);
   sign('ASSEMBLY', 66, 7.4, 79.85, 3, 1.3, '#ffffff', '#ed8b00'); sign('ASSEMBLY', 96, 7.2, 80.1, 2, 0.9, '#ffffff', '#ed8b00'); sign('ASSEMBLY', 96, 7.2, 87.9, 3, 0.9, '#ffffff', '#ed8b00'); sign('ASSEMBLY', 98, 3.9, 109.8, 3, 0.7, '#ffffff', '#ed8b00');
 
   // South of Revolution Drive.
@@ -192,14 +192,14 @@ export function buildCity(env: Env = makeEnv('summer', 'sunny')): World {
   // --- Orange Line: two tracks, island platform, bridge north over the Mystic --------------
   dec(86, 110, 0, 0.06, -176, 262, [0.27, 0.25, 0.25]); box(86, 110, -1.2, 0, -300, -176, PANEL, M.PAVE);
   for (let z = -290; z <= -186; z += 26) dec(87, 109, -4, -1.2, z - 1.2, z + 1.2, PANEL, M.PAVE);
-  for (const x of [91.2, 92.6, 103.4, 104.8]) dec(x - 0.06, x + 0.06, 0.06, 0.2, -300, 262, STEEL, M.PLAIN);
+  for (const x of [91.2, 92.6, 103.4, 104.8]) dec(x - 0.06, x + 0.06, 0.06, 0.2, -300, 262, STEEL, M.METAL);
   for (const x of [89.8, 106.2]) dec(x - 0.12, x + 0.12, 0.06, 0.26, -300, 262, YELLOW, M.PLAIN);
-  box(85, 85.3, 0, 1.6, -176, 262, STEEL, M.PLAIN, { surf: 'steel' }); box(110.7, 111, 0, 1.6, -176, 262, STEEL, M.PLAIN, { surf: 'steel' });
+  box(85, 85.3, 0, 1.6, -176, 262, STEEL, M.METAL, { surf: 'steel' }); box(110.7, 111, 0, 1.6, -176, 262, STEEL, M.METAL, { surf: 'steel' });
 
   // --- Baxter Riverfront Park ------------------------------------------------------------
   dec(-82, 84, 0, 0.05, -176, -133, GRASS, M.GRASS); dec(-82, 84, 0, 0.08, -172, -169, PAVE, M.PAVE);
   dec(-24, 24, 0, 0.08, -148, -133, BRICKPAVE, M.PAVE); dec(-9, 9, 0, 0.08, -164, -148, PAVE, M.PAVE); dec(-15, 15, 0, 0.08, -176, -164, PAVE, M.PAVE);
-  for (let x = -14; x <= 14; x += 4) dec(x - 0.05, x + 0.05, 0, 1.1, -175.6, -175.5, BLACK, M.PLAIN); dec(-15, 15, 1.05, 1.12, -175.62, -175.48, BLACK, M.PLAIN);
+  for (let x = -14; x <= 14; x += 4) dec(x - 0.05, x + 0.05, 0, 1.1, -175.6, -175.5, BLACK, M.METAL); dec(-15, 15, 1.05, 1.12, -175.62, -175.48, BLACK, M.METAL);
   // Three freestanding riveted steel portal frames salvaged from the Ford assembly plant.
   for (const cx of [-16, 0, 16]) {
     for (const lx of [-3.6, 3.6]) {
@@ -224,7 +224,7 @@ export function buildCity(env: Env = makeEnv('summer', 'sunny')): World {
     dec(x - 1.0, x + 1.0, 0.5, 1.4, z - 1.6, z + 1.2, WHITE, M.SNOWY); dec(x - 0.9, x + 0.9, 0.8, 1.25, z - 1.66, z - 1.6, [0.1, 0.14, 0.2], M.PLAIN);
   }
   [RED, YELLOW, BLUE, GREEN].forEach((c, i) => dec(62.6 + i * 1.0, 63.3 + i * 1.0, 0.05, 0.4, -175.5, -171.6, c, M.PLAIN));
-  sign('KAYAKS', 64.5, 1.6, -171.5, 2, 0.6, '#ffffff', '#1d6fd1'); dec(64.4, 64.6, 0.05, 1.2, -171.6, -171.5, STEEL, M.PLAIN);
+  sign('KAYAKS', 64.5, 1.6, -171.5, 2, 0.6, '#ffffff', '#1d6fd1'); dec(64.4, 64.6, 0.05, 1.2, -171.6, -171.5, STEEL, M.METAL);
 
   // --- Draw Seven Park and the Amelia Earhart Dam ------------------------------------------
   dec(112, 205, 0, 0.05, -140, 262, GRASS, M.GRASS); dec(140, 144, 0, 0.08, -140, 262, PAVE, M.PAVE);
@@ -233,7 +233,7 @@ export function buildCity(env: Env = makeEnv('summer', 'sunny')): World {
   box(160, 172, -4, 0.3, -300, -176, PANEL, M.PAVE);
   for (const z of [-270, -238, -206]) dec(162, 170, 0.3, 5, z - 3, z + 3, [0.70, 0.71, 0.73], M.FACADE);
   dec(163, 169, 5, 12, -257, -251, [0.74, 0.75, 0.77], M.FACADE); dec(162.4, 169.6, 12, 12.5, -257.6, -250.4, CHAR, M.PLAIN);
-  dec(160, 160.15, 0.3, 1.4, -300, -176, STEEL, M.PLAIN); dec(171.85, 172, 0.3, 1.4, -300, -176, STEEL, M.PLAIN);
+  dec(160, 160.15, 0.3, 1.4, -300, -176, STEEL, M.METAL); dec(171.85, 172, 0.3, 1.4, -300, -176, STEEL, M.METAL);
 
   // --- Shore Drive and the boathouse, upriver past the highway ------------------------------
   dec(-250, -103, 0, 0.05, -176, -150, GRASS, M.GRASS); dec(-440, -250, 0, 0.05, -148, -134, ASPHALT, M.ASPHALT);
@@ -271,7 +271,7 @@ export function buildCity(env: Env = makeEnv('summer', 'sunny')): World {
   // Roundabout where Grand Union meets the park.
   box(-101, -93, 0, 0.5, -132, -124, GRASS, M.GRASS); box(-102.5, -91.5, 0, 0.3, -130, -126, PAVE, M.PAVE); box(-99, -95, 0, 0.3, -133.5, -122.5, PAVE, M.PAVE); tree(-97, -128, 6, 0.5);
   for (const [x, z, t] of [[-83, 152.5, 'REVOLUTION DR'], [-7, -57.5, 'ARTISAN WAY'], [7, 4.5, 'CANAL ST'], [-7, 61, 'FOLEY ST'], [-83, -114.5, 'GRAND UNION BLVD']] as [number, number, string][]) {
-    dec(x - 0.07, x + 0.07, 0.1, 3.4, z - 0.07, z + 0.07, BLACK, M.PLAIN); sign(t, x, 3.1, z + 0.09, 2, 0.32, '#ffffff', '#1c4fa3'); sign(t, x, 3.1, z - 0.09, 3, 0.32, '#ffffff', '#1c4fa3');
+    dec(x - 0.07, x + 0.07, 0.1, 3.4, z - 0.07, z + 0.07, BLACK, M.METAL); sign(t, x, 3.1, z + 0.09, 2, 0.32, '#ffffff', '#1c4fa3'); sign(t, x, 3.1, z - 0.09, 3, 0.32, '#ffffff', '#1c4fa3');
   }
 
   // --- The driving loop: Grand Union north, Great River Road east, the track-side street south, Foley west.

@@ -2,9 +2,9 @@
 import { buildLab, topAt, trainAt, World, Env, Season, Weather, makeEnv } from './sim/world';
 import { buildCity, M } from './sim/city';
 import { makePlayer, step, warp, rebind, context, DT, Ev, Input } from './sim/player';
-import { Renderer, Instances, Look, Frame } from './render/renderer';
+import { Renderer, Instances, Look, Frame, Quality } from './render/renderer';
 import { buildStatic, buildDynamic, buildField, View } from './render/scene';
-import { perspective, lookAt, mul, chain, trans, rotX, rotY, scale } from './render/mat';
+import { chain, trans, rotX, rotY, scale } from './render/mat';
 import { Controls } from './input';
 import { Sound } from './audio';
 
@@ -99,8 +99,10 @@ function start() {
   const dyn = new Instances(2048), fx = new Instances(2048), field = new Instances(1024), view: View = { phase: 0, y: p.y };
   let boxesStatic = 0, fieldSeen = -1;
   function loadWorld() {
-    const st = buildStatic(w); renderer.setStatic(st.cubes, st.wedges); boxesStatic = st.cubes.n + st.wedges.n;
     look = lab ? { ...makeLook(makeEnv('summer', 'sunny')), fog: [0.905, 0.912, 0.925], hor: [0.905, 0.912, 0.925], zen: [0.80, 0.83, 0.88], cloud: 0, fogNear: 40, fogFar: 140, sunVis: 0 } : makeLook(w.env);
+    const wd = w.decor.find(d => d.mat === M.WATER);
+    renderer.setLook(look, wd ? wd.color : null, !!wd);
+    const st = buildStatic(w); renderer.setStatic(st.cubes, st.wedges); boxesStatic = st.cubes.n + st.wedges.n;
     const sg = buildSigns(w); renderer.setSigns(sg.verts, sg.canvas);
     fieldSeen = -1; tracks.length = 0; bits.length = 0;
     const f = look.fog; document.documentElement.style.setProperty('--concrete', `rgb(${f.map(c => Math.round(c * 255)).join(',')})`);
@@ -176,11 +178,19 @@ function start() {
   }
   const SNOWC = [0.95, 0.97, 1.0], LEAFC = [[0.86, 0.46, 0.10], [0.74, 0.20, 0.10], [0.93, 0.72, 0.16]];
 
-  function resize() {
-    const dpr = Math.min(2, devicePixelRatio || 1);
-    const cw = Math.max(1, Math.round(canvas.clientWidth * dpr)), ch = Math.max(1, Math.round(canvas.clientHeight * dpr));
-    if (canvas.width !== cw || canvas.height !== ch) { canvas.width = cw; canvas.height = ch; }
-  }
+  function resize() { renderer.resize(Math.max(1, canvas.clientWidth), Math.max(1, canvas.clientHeight), devicePixelRatio || 1); }
+
+  // Graphics quality: remembered per browser, stepped down automatically if frames are slow.
+  const QNAMES: Quality[] = ['high', 'medium', 'low'];
+  let quality: Quality = (matchMedia('(pointer: coarse)').matches || Math.min(screen.width, screen.height) < 700) ? 'medium' : 'high';
+  try { const q = localStorage.getItem('arl-quality') as Quality | null; if (q && QNAMES.includes(q)) quality = q; } catch (e) { /* optional */ }
+  let autoQ = true, slowT = 0;
+  const setQuality = (q: Quality, manual: boolean) => {
+    quality = q; renderer.setQuality(q); $('gfxBtn').textContent = 'Graphics: ' + q[0].toUpperCase() + q.slice(1);
+    if (manual) { autoQ = false; try { localStorage.setItem('arl-quality', q); } catch (e) { /* optional */ } }
+  };
+  setQuality(quality, false);
+  $('gfxBtn').addEventListener('click', () => { setQuality(QNAMES[(QNAMES.indexOf(quality) + 1) % 3], true); ($('gfxBtn') as HTMLElement).blur(); });
   function blocked(x: number, y: number, z: number) {
     if (x < w.minX + 0.3 || x > w.maxX - 0.3 || z < w.minZ + 0.3 || z > w.maxZ - 0.3) return true;
     for (const s of w.solids) {
@@ -194,12 +204,12 @@ function start() {
     let why = '';
     for (const e of evs) {
       switch (e.type) {
-        case 'land': shake += Math.min(0.5, e.v * 0.022); if (p.surf === 'snow' && e.v > 4) burst(10, p.x, p.y + 0.1, p.z, 2.5, 2.5, SNOWC, 0.12, 0.6, M.EMIS); break;
+        case 'land': shake += Math.min(0.5, e.v * 0.022); if (p.surf === 'snow' && e.v > 4) burst(10, p.x, p.y + 0.1, p.z, 2.5, 2.5, SNOWC, 0.12, 0.6, M.PARTICLE); break;
         case 'impact': shake += Math.min(0.6, e.v * 0.05); break;
         case 'ram': shake += 0.18; break;
         case 'launch': shake += 0.1; break;
-        case 'puff': burst(16, p.x, p.y, p.z, 3, 3.5, SNOWC, 0.14, 0.7, M.EMIS); break;
-        case 'splash': why = 'Splash. The Mystic says hi.'; burst(26, p.x, w.baseY, p.z, 3, 6, [0.8, 0.9, 1.0], 0.12, 0.8, M.EMIS); break;
+        case 'puff': burst(16, p.x, p.y, p.z, 3, 3.5, SNOWC, 0.14, 0.7, M.PARTICLE); break;
+        case 'splash': why = 'Splash. The Mystic says hi.'; burst(26, p.x, w.baseY, p.z, 3, 6, [0.8, 0.9, 1.0], 0.12, 0.8, M.PARTICLE); break;
         case 'train': why = 'Stand clear of the closing doors.'; break;
         case 'zap': why = 'That was the third rail.'; break;
         case 'goose': why = 'Goosed.'; break;
@@ -223,14 +233,14 @@ function start() {
         case 'fieldDone': say((e.name === 'plow' ? 'Lot ' : 'Lawns ') + e.v + '% ' + (e.name === 'plow' ? 'cleared' : 'mowed') + (e.v >= 100 ? '. Nice work.' : ''), 2.6); break;
         case 'mow': {
           const plow = p.ride >= 0 && p.rides[p.ride].kind === 'plow', c = Math.cos(p.yaw), s = Math.sin(p.yaw);
-          if (plow) burst(3, p.x + c * 3.6 + s * 1.8, 0.4, p.z + s * 3.6 - c * 1.8, 1.5, 3, SNOWC, 0.2, 0.7, M.EMIS, 12, s * 5, -c * 5);
+          if (plow) burst(3, p.x + c * 3.6 + s * 1.8, 0.4, p.z + s * 3.6 - c * 1.8, 1.5, 3, SNOWC, 0.2, 0.7, M.PARTICLE, 12, s * 5, -c * 5);
           else burst(2, p.x - s * 0.9, 0.3, p.z + c * 0.9, 1, 1.6, [0.40, 0.70, 0.28], 0.07, 0.5, M.PLAIN, 10, -s * 2.5, c * 2.5);
           break;
         }
         case 'soft': {
           const q = p.props[e.v];
           if (e.name === 'leaves') for (let k = 0; k < 3; k++) burst(10, q.x, q.y + 0.4, q.z, 3.5, 4, LEAFC[k], 0.13, 1.4, M.PLAIN, 5, p.vx * 0.4, p.vz * 0.4);
-          else { burst(22, q.x, q.y + 1, q.z, 3.5, 4, SNOWC, 0.22, 0.9, M.EMIS, 14, p.vx * 0.5, p.vz * 0.5); burst(1, q.x, q.y + 1.8, q.z, 2, 5, [0.93, 0.545, 0], 0.16, 1.2); }
+          else { burst(22, q.x, q.y + 1, q.z, 3.5, 4, SNOWC, 0.22, 0.9, M.PARTICLE, 14, p.vx * 0.5, p.vz * 0.5); burst(1, q.x, q.y + 1.8, q.z, 2, 5, [0.93, 0.545, 0], 0.16, 1.2); }
           shake += 0.12; break;
         }
       }
@@ -241,6 +251,10 @@ function start() {
     requestAnimationFrame(frame);
     const dt = Math.min(0.1, (now - last) / 1000); last = now; wall += dt;
     if (dt > 0) { frames.push(dt); if (frames.length > 300) frames.shift(); }
+    if (autoQ && !paused && dt > 0 && quality !== 'low') {
+      slowT = dt > 1 / 38 ? slowT + dt : Math.max(0, slowT - dt * 0.5);
+      if (slowT > 3) { slowT = 0; setQuality(quality === 'high' ? 'medium' : 'low', false); say('Graphics set to ' + quality + ' for smoother play', 2.2); }
+    }
     resize();
     controls.poll();
     if (!paused) {
@@ -298,10 +312,6 @@ function start() {
     const base = (60 + (calm ? 0 : 16 * k * k)) * Math.PI / 180;
     const fovy = Math.min(1.85, 2 * Math.atan(Math.tan(base / 2) * Math.pow(Math.max(1, 1 / aspect), 0.75)));
     const ay = ty + 0.2;
-    const vp = mul(perspective(fovy, aspect, city ? 0.4 : 0.1, city ? 1700 : 260), lookAt(cam.x, cam.y, cam.z, tx, ay, tz));
-    let fx0 = tx - cam.x, fy0 = ay - cam.y, fz0 = tz - cam.z; const fl = Math.hypot(fx0, fy0, fz0) || 1; fx0 /= fl; fy0 /= fl; fz0 /= fl;
-    let rx = -fz0, rz = fx0; const rl = Math.hypot(rx, rz) || 1; rx /= rl; rz /= rl;
-    const ux = -rz * fy0, uy = rz * fx0 - rx * fz0, uz = rx * fy0;
 
     // --- Effects: weather around the camera, bursts, tracks in the snow -----------------------
     fx.clear();
@@ -314,8 +324,8 @@ function start() {
       for (let i = 0; i < count; i++) {
         const x = cam.x + mod(rnd(i, 1) * BX + wx * t - cam.x, BX) - BX / 2, z = cam.z + mod(rnd(i, 2) * BX + wx * 0.4 * t - cam.z, BX) - BX / 2;
         const y = cam.y + mod(rnd(i, 3) * BY - fall * (0.8 + rnd(i, 4) * 0.4) * t - cam.y, BY) - 8;
-        if (kind === 1) fx.box(x, y, z, 0.03, 0.75, 0.03, 0.72, 0.78, 0.86, M.EMIS);
-        else if (kind === 2) fx.box(x + Math.sin(t * 1.3 + i) * 0.4, y, z + Math.cos(t * 1.1 + i * 2) * 0.4, 0.07, 0.07, 0.07, 0.98, 0.98, 1.0, M.EMIS);
+        if (kind === 1) fx.box(x, y, z, 0.025, 0.85, 0.025, 0.80, 0.84, 0.90, M.RAIN);
+        else if (kind === 2) fx.box(x + Math.sin(t * 1.3 + i) * 0.4, y, z + Math.cos(t * 1.1 + i * 2) * 0.4, 0.07, 0.07, 0.07, 0.98, 0.98, 1.0, M.PARTICLE);
         else {
           const c = kind === 4 ? [0.98, 0.78, 0.86] : se === 'summer' ? [0.34, 0.56, 0.26] : LEAFC[i % 3];
           fx.push(chain(trans(x, y + Math.sin(t * 2 + i) * 0.5, z), rotY(t * 2 + i), rotX(t * 3 + i * 2), scale(kind === 4 ? 0.09 : 0.18, 0.02, kind === 4 ? 0.07 : 0.12)), c[0], c[1], c[2], M.PLAIN);
@@ -326,12 +336,12 @@ function start() {
         let dy = p.yaw - prevYaw; dy = Math.atan2(Math.sin(dy), Math.cos(dy));
         const carve = Math.min(1, Math.abs(dy) / Math.max(dt, 0.001) / 2.2), side = Math.sign(dy) || 1;
         const px = -Math.sin(p.yaw) * side, pz = Math.cos(p.yaw) * side;
-        if (p.surf === 'snow' && (p.edge || carve > 0.35 || plowing)) burst(p.edge ? 4 : plowing ? 2 : 2, p.x, p.y + 0.1, p.z, 1.2, 2 + sp * 0.12, SNOWC, 0.11, 0.55, M.EMIS, 12, -px * (2 + sp * 0.3) + p.vx * 0.3, -pz * (2 + sp * 0.3) + p.vz * 0.3);
-        else if (look.wet > 0 && sp > 6) burst(1, p.x, p.y + 0.05, p.z, 0.8, 1.6, [0.75, 0.82, 0.9], 0.05, 0.35, M.EMIS, 12, -p.vx * 0.2, -p.vz * 0.2);
+        if (p.surf === 'snow' && (p.edge || carve > 0.35 || plowing)) burst(p.edge ? 4 : plowing ? 2 : 2, p.x, p.y + 0.1, p.z, 1.2, 2 + sp * 0.12, SNOWC, 0.11, 0.55, M.PARTICLE, 12, -px * (2 + sp * 0.3) + p.vx * 0.3, -pz * (2 + sp * 0.3) + p.vz * 0.3);
+        else if (look.wet > 0 && sp > 6) burst(1, p.x, p.y + 0.05, p.z, 0.8, 1.6, [0.75, 0.82, 0.9], 0.05, 0.35, M.PARTICLE, 12, -p.vx * 0.2, -p.vz * 0.2);
       }
       prevYaw = p.yaw;
       if (env.snow && !paused) for (const c of p.cars) if (c.kind === 'plow' && c.v > 2 && Math.abs(c.x - p.x) + Math.abs(c.z - p.z) < 120 && Math.random() < 0.5)
-        burst(1, c.x + c.hx * 4.2 - c.hz * -1.9, 0.5, c.z + c.hz * 4.2 + c.hx * -1.9, 1, 3, SNOWC, 0.2, 0.7, M.EMIS, 12, c.hz * 5 + c.hx * c.v, -c.hx * 5 + c.hz * c.v);
+        burst(1, c.x + c.hx * 4.2 - c.hz * -1.9, 0.5, c.z + c.hz * 4.2 + c.hx * -1.9, 1, 3, SNOWC, 0.2, 0.7, M.PARTICLE, 12, c.hz * 5 + c.hx * c.v, -c.hx * 5 + c.hz * c.v);
       if (p.surf === 'snow' && p.grounded && !bailed && p.mode !== 'foot' && Math.hypot(p.x - trackX, p.z - trackZ) > 0.55) {
         trackX = p.x; trackZ = p.z; tracks.push([p.x, p.y, p.z, p.yaw, plowing ? 2.6 : driving ? 1 : 0.3]); if (tracks.length > 260) tracks.shift();
       }
@@ -347,10 +357,7 @@ function start() {
     buildDynamic(dyn, w, p, view, paused ? 0 : dt);
     if (city && fieldSeen !== p.fieldN) { fieldSeen = p.fieldN; buildField(field, w, p); renderer.setField(field); }
     const shY = bailed ? p.rag.y - 0.3 : view.y;
-    const fr: Frame = {
-      vp, cam: [cam.x, cam.y, cam.z], right: [rx, 0, rz], up: [ux, uy, uz], fwd: [fx0, fy0, fz0],
-      tanX: Math.tan(fovy / 2) * aspect, tanY: Math.tan(fovy / 2), blob: [tx, shY + 0.05, tz], focus: [tx, shY, tz], time: t, look,
-    };
+    const fr: Frame = { cam: [cam.x, cam.y, cam.z], target: [tx, ay, tz], fovy, aspect, near: city ? 0.3 : 0.1, far: city ? 1700 : 260, focus: [tx, shY, tz], time: t };
     renderer.draw(fr, dyn, fx);
 
     // --- HUD ------------------------------------------------------------------------------------
@@ -455,6 +462,7 @@ function start() {
 
   (window as any).__lab = {
     p, cam, get w() { return w; },
+    quality(q: Quality) { setQuality(q, false); autoQ = false; },
     go(s: Season, wt: Weather, spawn: number) { setEnv(s, wt, spawn); menu.hidden = true; paused = false; stage.classList.remove('menuing'); },
     stats: () => { stats(); return { fpsMed, fpsLow, simUs, drawCalls: renderer.drawCalls, boxes: renderer.boxes, staticBoxes: boxesStatic }; },
   };

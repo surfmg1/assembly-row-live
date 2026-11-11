@@ -36,7 +36,7 @@ Open `dist/index.html` in a browser.
 
 ```
 src/sim/      deterministic movement simulation, no browser APIs
-src/render/   throwaway WebGL2 box renderer for the lab (ADR 0002)
+src/render/   Three.js renderer: instanced meshes, procedural PBR surfaces, sky, shadows, water, post (ADR 0007)
 src/          input, sound, and the browser entry point
 tests/        physics tests
 tools/        build and headless capture

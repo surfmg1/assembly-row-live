@@ -1,95 +1,158 @@
-// Turns simulation state into box instances: the world, trees for the season, the mannequin,
-// boards, cart, kayak, vehicles, the bungee, trains, NPCs and props.
+// Turns simulation state into instances: the world, trees for the season, rooftop and street
+// detail, the player, boards, cart, kayak, vehicles, the bungee, trains, NPCs and props.
 import { World, ground, trainAt, TRAIN_HALF } from '../sim/world';
 import { Player, Ride } from '../sim/player';
 import { Car, ROPE } from '../sim/traffic';
 import { M } from '../sim/city';
-import { Instances } from './renderer';
+import { Instances, G } from './instances';
 import { M4, chain, mul, trans, scale, rotX, rotY, rotZ } from './mat';
 
 const CONCRETE = [0.80, 0.81, 0.83], RAMP = [0.68, 0.70, 0.74], WALL = [0.87, 0.88, 0.90], FLOOR = [0.74, 0.75, 0.78];
-const ORANGE = [0.93, 0.545, 0.0], INK = [0.10, 0.12, 0.16], SLATE = [0.30, 0.34, 0.42], SKIN = [0.88, 0.83, 0.77];
+const ORANGE = [0.93, 0.545, 0.0], INK = [0.10, 0.12, 0.16], SLATE = [0.30, 0.34, 0.42], SKIN = [0.86, 0.72, 0.62];
 const STEEL = [0.58, 0.61, 0.66], CRATE = [0.74, 0.62, 0.44], WHITE = [0.96, 0.96, 0.97], NAVY = [0.13, 0.19, 0.36];
-const TIRE = [0.09, 0.09, 0.10], GLASSD = [0.13, 0.17, 0.22], HEAD = [1.0, 0.96, 0.82], TAIL = [0.95, 0.12, 0.10], LIME = [0.75, 1.0, 0.25];
+const TIRE = [0.07, 0.07, 0.08], GLASSD = [0.16, 0.20, 0.26], HEAD = [1.0, 0.96, 0.82], TAIL = [0.95, 0.12, 0.10], LIME = [0.75, 1.0, 0.25];
+const HUB = [0.72, 0.74, 0.77], DARK = [0.06, 0.06, 0.07], BARK = [0.28, 0.22, 0.17], WOODS = [0.55, 0.40, 0.26];
 const SHIRTS = [[0.80, 0.25, 0.22], [0.22, 0.45, 0.75], [0.30, 0.62, 0.38], [0.93, 0.80, 0.30], [0.55, 0.36, 0.70], [0.90, 0.90, 0.88], [0.20, 0.22, 0.26], [0.85, 0.50, 0.62]];
 const COATS = [[0.16, 0.18, 0.24], [0.45, 0.14, 0.16], [0.20, 0.34, 0.30], [0.62, 0.60, 0.56], [0.24, 0.30, 0.50], [0.80, 0.52, 0.16]];
+const HAIR = [[0.10, 0.07, 0.05], [0.32, 0.20, 0.12], [0.62, 0.48, 0.30], [0.05, 0.05, 0.05], [0.55, 0.30, 0.15]];
+const SKINS = [[0.86, 0.72, 0.62], [0.62, 0.45, 0.33], [0.42, 0.29, 0.21], [0.92, 0.80, 0.70], [0.74, 0.56, 0.42]];
 const CARS = [[0.72, 0.14, 0.14], [0.90, 0.90, 0.90], [0.14, 0.19, 0.30], [0.50, 0.52, 0.56], [0.18, 0.38, 0.68], [0.12, 0.13, 0.14], [0.70, 0.72, 0.74], [0.40, 0.46, 0.34], [0.78, 0.74, 0.62]];
 const hash = (a: number, b: number) => { const s = Math.sin(a * 127.1 + b * 311.7) * 43758.5453; return s - Math.floor(s); };
 
-function boxAt(out: Instances, root: M4, x: number, y: number, z: number, sx: number, sy: number, sz: number, c: number[], mat = 1) {
-  out.push(chain(root, trans(x, y, z), scale(sx, sy, sz)), c[0], c[1], c[2], mat);
+function boxAt(out: Instances, root: M4, x: number, y: number, z: number, sx: number, sy: number, sz: number, c: number[], mat = 1, geo = 0) {
+  out.push(chain(root, trans(x, y, z), scale(sx, sy, sz)), c[0], c[1], c[2], mat, geo);
+}
+/** A wheel or disc: cylinder whose axis runs along local z. */
+function wheel(out: Instances, root: M4, x: number, y: number, z: number, d: number, w: number, hub = true) {
+  out.push(chain(root, trans(x, y, z), rotX(Math.PI / 2), scale(d, w, d)), TIRE[0], TIRE[1], TIRE[2], M.PLAIN, G.CYL);
+  if (hub) out.push(chain(root, trans(x, y, z), rotX(Math.PI / 2), scale(d * 0.55, w + 0.02, d * 0.55)), HUB[0], HUB[1], HUB[2], M.METAL, G.CYL);
 }
 
-/** A passenger car. Local +x is forward. `sm` is the material for body panels (snow sticks to parked ones). */
-function carModel(out: Instances, m: M4, c: number[], sm = 1) {
-  boxAt(out, m, 0, 0.62, 0, 4.3, 0.62, 1.8, c, sm); boxAt(out, m, -0.2, 1.18, 0, 2.3, 0.5, 1.62, GLASSD); boxAt(out, m, -0.2, 1.46, 0, 2.2, 0.08, 1.66, c, sm);
-  for (const x of [-1.35, 1.35]) for (const z of [-0.88, 0.88]) boxAt(out, m, x, 0.32, z, 0.64, 0.64, 0.2, TIRE);
-  for (const z of [-0.6, 0.6]) { boxAt(out, m, 2.16, 0.7, z, 0.04, 0.16, 0.36, HEAD, M.EMIS); boxAt(out, m, -2.16, 0.74, z, 0.04, 0.14, 0.3, TAIL, M.EMIS); }
+/** A passenger car. Local +x is forward. */
+function carModel(out: Instances, m: M4, c: number[], snow = false) {
+  boxAt(out, m, 0, 0.58, 0, 4.4, 0.56, 1.82, c, M.PAINT); boxAt(out, m, 1.55, 0.78, 0, 1.3, 0.22, 1.78, c, M.PAINT); boxAt(out, m, -1.75, 0.82, 0, 0.9, 0.26, 1.78, c, M.PAINT);
+  out.push(chain(m, trans(0.95, 1.12, 0), rotZ(-0.62), scale(0.62, 0.05, 1.56)), GLASSD[0], GLASSD[1], GLASSD[2], M.WINDOW);
+  out.push(chain(m, trans(-1.18, 1.12, 0), rotZ(0.75), scale(0.56, 0.05, 1.56)), GLASSD[0], GLASSD[1], GLASSD[2], M.WINDOW);
+  boxAt(out, m, -0.15, 1.12, 0, 1.75, 0.5, 1.6, GLASSD, M.WINDOW); boxAt(out, m, -0.15, 1.4, 0, 1.85, 0.07, 1.62, c, M.PAINT);
+  for (const z of [-0.81, 0.81]) for (const x of [0.62, -0.85]) boxAt(out, m, x, 1.12, z, 0.07, 0.5, 0.03, c, M.PAINT);
+  for (const x of [-1.38, 1.38]) for (const z of [-0.84, 0.84]) wheel(out, m, x, 0.34, z, 0.68, 0.24);
+  for (const z of [-0.62, 0.62]) { boxAt(out, m, 2.2, 0.68, z, 0.04, 0.14, 0.34, HEAD, M.EMIS); boxAt(out, m, -2.2, 0.76, z, 0.04, 0.12, 0.3, TAIL, M.EMIS); }
+  boxAt(out, m, 2.21, 0.42, 0, 0.06, 0.16, 1.7, DARK, M.PLAIN); boxAt(out, m, -2.21, 0.42, 0, 0.06, 0.16, 1.7, DARK, M.PLAIN);
+  if (snow) { boxAt(out, m, -0.15, 1.5, 0, 1.75, 0.14, 1.52, WHITE, M.SNOWY, G.BOX); boxAt(out, m, 1.6, 0.94, 0, 1.15, 0.1, 1.6, WHITE, M.SNOWY); boxAt(out, m, -1.75, 0.98, 0, 0.8, 0.08, 1.6, WHITE, M.SNOWY); }
 }
 function pickupModel(out: Instances, m: M4, c: number[]) {
-  boxAt(out, m, 0, 0.8, 0, 5.5, 0.6, 2.0, c); boxAt(out, m, 1.8, 1.22, 0, 1.9, 0.26, 1.96, c);
-  boxAt(out, m, 0.15, 1.55, 0, 1.6, 0.62, 1.8, GLASSD); boxAt(out, m, 0.15, 1.9, 0, 1.7, 0.1, 1.9, c); boxAt(out, m, -0.62, 1.5, 0, 0.1, 0.7, 1.86, c);
-  for (const z of [-0.96, 0.96]) boxAt(out, m, -1.75, 1.3, z, 2.0, 0.45, 0.08, c);
-  boxAt(out, m, -2.72, 1.3, 0, 0.08, 0.45, 2.0, c); boxAt(out, m, -2.9, 0.62, 0, 0.3, 0.08, 0.08, STEEL);
-  for (const x of [-1.75, 1.8]) for (const z of [-0.98, 0.98]) boxAt(out, m, x, 0.42, z, 0.84, 0.84, 0.26, TIRE);
-  for (const z of [-0.7, 0.7]) { boxAt(out, m, 2.76, 0.95, z, 0.04, 0.18, 0.4, HEAD, M.EMIS); boxAt(out, m, -2.77, 1.05, z, 0.04, 0.3, 0.16, TAIL, M.EMIS); }
+  boxAt(out, m, 0, 0.8, 0, 5.5, 0.6, 2.0, c, M.PAINT); boxAt(out, m, 1.85, 1.2, 0, 1.8, 0.22, 1.96, c, M.PAINT);
+  boxAt(out, m, 0.15, 1.55, 0, 1.6, 0.62, 1.8, GLASSD, M.WINDOW); boxAt(out, m, 0.15, 1.9, 0, 1.7, 0.1, 1.9, c, M.PAINT); boxAt(out, m, -0.62, 1.5, 0, 0.1, 0.7, 1.86, c, M.PAINT);
+  out.push(chain(m, trans(1.08, 1.52, 0), rotZ(-0.5), scale(0.5, 0.05, 1.7)), GLASSD[0], GLASSD[1], GLASSD[2], M.WINDOW);
+  for (const z of [-0.96, 0.96]) boxAt(out, m, -1.75, 1.3, z, 2.0, 0.45, 0.08, c, M.PAINT);
+  boxAt(out, m, -2.72, 1.3, 0, 0.08, 0.45, 2.0, c, M.PAINT); boxAt(out, m, -2.9, 0.62, 0, 0.3, 0.08, 0.08, STEEL, M.METAL);
+  boxAt(out, m, 2.78, 0.62, 0, 0.12, 0.28, 2.0, STEEL, M.METAL); boxAt(out, m, 2.76, 1.0, 0, 0.06, 0.26, 1.2, DARK, M.PLAIN);
+  for (const x of [-1.75, 1.8]) for (const z of [-0.98, 0.98]) wheel(out, m, x, 0.44, z, 0.88, 0.3);
+  for (const z of [-0.72, 0.72]) { boxAt(out, m, 2.77, 1.0, z, 0.04, 0.2, 0.32, HEAD, M.EMIS); boxAt(out, m, -2.77, 1.05, z, 0.04, 0.3, 0.16, TAIL, M.EMIS); }
   // the friend at the wheel, arm out the window
-  boxAt(out, m, 0.3, 1.62, -0.45, 0.26, 0.28, 0.26, SKIN); boxAt(out, m, 0.3, 1.8, -0.45, 0.3, 0.1, 0.3, [0.2, 0.5, 0.3]); boxAt(out, m, 0.35, 1.36, -1.0, 0.5, 0.1, 0.12, [0.2, 0.3, 0.5]);
+  boxAt(out, m, 0.3, 1.64, -0.45, 0.28, 0.32, 0.26, SKIN, M.PLAIN, G.BLOB); boxAt(out, m, 0.3, 1.8, -0.45, 0.32, 0.12, 0.3, [0.2, 0.5, 0.3]); boxAt(out, m, 0.35, 1.36, -1.0, 0.5, 0.1, 0.12, [0.2, 0.3, 0.5]);
 }
 function plowModel(out: Instances, m: M4, t: number, hue: number) {
   const body = hue % 2 ? [0.95, 0.62, 0.08] : [0.92, 0.78, 0.10];
   boxAt(out, m, -0.3, 0.95, 0, 6.6, 0.5, 2.5, [0.15, 0.15, 0.17]);
-  boxAt(out, m, 2.0, 2.0, 0, 2.0, 1.7, 2.5, body); boxAt(out, m, 3.02, 2.3, 0, 0.05, 0.8, 2.2, GLASSD); boxAt(out, m, 2.0, 2.4, 0, 1.3, 0.7, 2.54, GLASSD);
-  boxAt(out, m, -1.6, 2.2, 0, 4.0, 1.6, 2.7, [0.62, 0.64, 0.68]); boxAt(out, m, -3.75, 1.3, 0, 0.5, 0.5, 2.0, body);
+  boxAt(out, m, 2.0, 2.0, 0, 2.0, 1.7, 2.5, body, M.PAINT); boxAt(out, m, 3.02, 2.3, 0, 0.05, 0.8, 2.2, GLASSD, M.WINDOW); boxAt(out, m, 2.0, 2.4, 0, 1.3, 0.7, 2.54, GLASSD, M.WINDOW);
+  boxAt(out, m, -1.6, 2.2, 0, 4.0, 1.6, 2.7, [0.62, 0.64, 0.68], M.METAL); boxAt(out, m, -3.75, 1.3, 0, 0.5, 0.5, 2.0, body, M.PAINT);
   const bl = chain(m, trans(4.25, 0.72, 0), rotY(0.42));
-  boxAt(out, bl, 0, 0, 0, 0.28, 1.3, 3.9, [0.95, 0.80, 0.10]); boxAt(out, bl, 0.12, -0.55, 0, 0.1, 0.18, 3.9, [0.3, 0.3, 0.32]);
+  boxAt(out, bl, 0, 0, 0, 0.28, 1.3, 3.9, [0.95, 0.80, 0.10], M.PAINT); boxAt(out, bl, 0.12, -0.55, 0, 0.1, 0.18, 3.9, [0.3, 0.3, 0.32], M.METAL);
   boxAt(out, m, 3.5, 0.8, 0, 1.2, 0.2, 1.2, [0.2, 0.2, 0.22]);
   const blink = Math.sin(t * 9) > 0;
-  boxAt(out, m, 2.0, 2.98, 0, 0.34, 0.24, 0.34, blink ? [1.0, 0.72, 0.1] : [0.45, 0.3, 0.05], M.EMIS);
-  for (const x of [2.2, -1.3, -2.5]) for (const z of [-1.15, 1.15]) boxAt(out, m, x, 0.52, z, 1.04, 1.04, 0.36, TIRE);
+  boxAt(out, m, 2.0, 2.98, 0, 0.34, 0.24, 0.34, blink ? [1.0, 0.72, 0.1] : [0.45, 0.3, 0.05], blink ? M.EMIS : M.PLAIN, G.CYL);
+  for (const x of [2.2, -1.3, -2.5]) for (const z of [-1.15, 1.15]) wheel(out, m, x, 0.54, z, 1.08, 0.38);
   for (const z of [-0.9, 0.9]) { boxAt(out, m, 3.04, 1.45, z, 0.04, 0.2, 0.4, HEAD, M.EMIS); boxAt(out, m, -3.62, 1.25, z, 0.04, 0.2, 0.3, TAIL, M.EMIS); }
 }
 function mowerModel(out: Instances, m: M4, t: number, running: boolean) {
   const R = [0.80, 0.14, 0.12], shake = running ? Math.sin(t * 50) * 0.008 : 0;
   const b = chain(m, trans(0, shake, 0));
-  boxAt(out, b, -0.05, 0.56, 0, 1.5, 0.34, 0.8, R); boxAt(out, b, 0.48, 0.84, 0, 0.72, 0.3, 0.7, R); boxAt(out, b, 0.86, 0.78, 0, 0.05, 0.2, 0.5, INK);
+  boxAt(out, b, -0.05, 0.56, 0, 1.5, 0.34, 0.8, R, M.PAINT); boxAt(out, b, 0.48, 0.84, 0, 0.72, 0.3, 0.7, R, M.PAINT); boxAt(out, b, 0.86, 0.78, 0, 0.05, 0.2, 0.5, INK);
   boxAt(out, b, -0.42, 0.78, 0, 0.46, 0.1, 0.5, INK); boxAt(out, b, -0.62, 1.02, 0, 0.1, 0.46, 0.5, INK);
-  boxAt(out, b, 0.12, 1.02, 0, 0.06, 0.4, 0.06, INK); boxAt(out, b, 0.1, 1.24, 0, 0.06, 0.06, 0.42, INK);
-  boxAt(out, b, 0.18, 0.2, 0, 1.2, 0.14, 1.36, [0.14, 0.14, 0.15]); boxAt(out, b, 0.18, 0.2, 0.78, 0.4, 0.12, 0.24, [0.14, 0.14, 0.15]);
-  for (const z of [-0.5, 0.5]) { boxAt(out, b, -0.5, 0.3, z, 0.6, 0.6, 0.22, TIRE); boxAt(out, b, 0.62, 0.2, z * 0.86, 0.4, 0.4, 0.16, TIRE); }
+  boxAt(out, b, 0.12, 1.02, 0, 0.05, 0.4, 0.05, INK, M.METAL, G.CYL); out.push(chain(b, trans(0.1, 1.24, 0), rotX(Math.PI / 2), scale(0.42, 0.05, 0.42)), INK[0], INK[1], INK[2], M.PLAIN, G.CYL);
+  boxAt(out, b, 0.18, 0.2, 0, 1.2, 0.14, 1.36, [0.14, 0.14, 0.15], M.METAL); boxAt(out, b, 0.18, 0.2, 0.78, 0.4, 0.12, 0.24, [0.14, 0.14, 0.15]);
+  for (const z of [-0.5, 0.5]) { wheel(out, b, -0.5, 0.3, z, 0.6, 0.22); wheel(out, b, 0.62, 0.2, z * 0.86, 0.4, 0.16); }
 }
 
 function treeModel(out: Instances, w: World, x: number, z: number, y: number, h: number, lights: boolean, i: number) {
-  const se = w.env.season, r = hash(i, 3), r2 = hash(i, 8), top = y + h * 0.42, cw = h * (0.46 + r * 0.12);
+  const se = w.env.season, r = hash(i, 3), r2 = hash(i, 8), top = y + h * 0.42, cw = h * (0.5 + r * 0.12);
+  out.box(x, y + h * 0.3, z, 0.34, h * 0.6, 0.34, BARK[0], BARK[1], BARK[2], M.PLAIN, G.CYL);
+  const branch = (k: number, len: number, th: number) => {
+    const a = k * 1.26 + r * 6, tilt = 0.55 + hash(i, k) * 0.45;
+    out.push(chain(trans(x, top - h * 0.08 + h * 0.06 * k, z), rotY(a), rotZ(tilt), trans(0, len / 2, 0), scale(th, len, th)), BARK[0], BARK[1], BARK[2], M.SNOWY, G.CYL);
+  };
   if (se === 'winter') {
-    const B = [0.26, 0.20, 0.16];
-    out.box(x, top + h * 0.2, z, 0.16, h * 0.4, 0.16, B[0], B[1], B[2], M.PLAIN);
-    for (let k = 0; k < 5; k++) {
-      const a = k * 1.26 + r * 6, tilt = 0.7 + hash(i, k) * 0.4, len = h * (0.34 + hash(k, i) * 0.14);
-      out.push(chain(trans(x, top + h * 0.05 * k, z), rotY(a), rotZ(tilt), trans(0, len / 2, 0), scale(0.09, len, 0.09)), B[0], B[1], B[2], M.SNOWY);
-    }
+    out.box(x, top + h * 0.2, z, 0.2, h * 0.45, 0.2, BARK[0], BARK[1], BARK[2], M.PLAIN, G.CYL);
+    for (let k = 0; k < 6; k++) branch(k, h * (0.32 + hash(k, i) * 0.16), 0.12);
+    for (let k = 0; k < 6; k++) { const a = k * 1.9 + r * 4, len = h * 0.22; out.push(chain(trans(x, top + h * 0.22 + k * 0.25, z), rotY(a), rotZ(0.9), trans(0, len / 2, 0), scale(0.06, len, 0.06)), BARK[0], BARK[1], BARK[2], M.SNOWY, G.CYL); }
   } else {
+    for (let k = 0; k < 3; k++) branch(k * 2, h * 0.3, 0.12);
     let c: number[];
-    if (se === 'fall') c = r < 0.34 ? [0.86, 0.46, 0.10] : r < 0.67 ? [0.74, 0.20, 0.10] : [0.93, 0.72, 0.16];
-    else if (se === 'spring') c = r < 0.4 ? [0.96, 0.72, 0.82] : r < 0.55 ? [0.98, 0.93, 0.95] : [0.52, 0.74, 0.34];
-    else c = r < 0.5 ? [0.22, 0.48, 0.20] : [0.28, 0.54, 0.24];
-    const k = se === 'fall' ? 0.86 : 1;
-    out.box(x, top + cw * 0.36 * k, z, cw * k, cw * 0.72 * k, cw * k, c[0], c[1], c[2], M.LEAF);
-    out.box(x + (r2 - 0.5) * cw * 0.5, top + cw * 0.8 * k, z + (r - 0.5) * cw * 0.5, cw * 0.7 * k, cw * 0.5 * k, cw * 0.7 * k, c[0] * 1.06, c[1] * 1.06, c[2] * 1.06, M.LEAF);
-    out.box(x - (r2 - 0.5) * cw * 0.6, top + cw * 0.3 * k, z - (r - 0.5) * cw * 0.6, cw * 0.6 * k, cw * 0.44 * k, cw * 0.6 * k, c[0] * 0.92, c[1] * 0.92, c[2] * 0.92, M.LEAF);
+    if (se === 'fall') c = r < 0.34 ? [0.86, 0.42, 0.08] : r < 0.67 ? [0.70, 0.18, 0.08] : [0.92, 0.68, 0.12];
+    else if (se === 'spring') c = r < 0.4 ? [0.96, 0.72, 0.82] : r < 0.55 ? [0.98, 0.93, 0.95] : [0.48, 0.70, 0.30];
+    else c = r < 0.5 ? [0.20, 0.42, 0.16] : [0.26, 0.48, 0.20];
+    const k = se === 'fall' ? 0.88 : 1, R = cw * k;
+    const lobes = [[0, 0.55, 0, 1.0], [0.32, 0.38, 0.12, 0.72], [-0.3, 0.42, -0.18, 0.7], [0.08, 0.86, -0.1, 0.66], [-0.12, 0.3, 0.32, 0.64], [0.18, 0.28, -0.34, 0.6]];
+    lobes.forEach(([ox, oy, oz, s], j) => {
+      const v = 0.88 + 0.24 * hash(i, j + 20), jx = (hash(i, j) - 0.5) * 0.2;
+      out.box(x + (ox + jx) * R, top + oy * R, z + oz * R, R * s * (1 + (r2 - 0.5) * 0.2), R * s * 0.86, R * s, c[0] * v, c[1] * v, c[2] * v, M.LEAF, G.BLOB);
+    });
   }
   if (lights && (se === 'winter' || w.env.weather === 'snowy' || w.env.weather === 'rainy')) {
-    for (let k = 0; k < 9; k++) {
-      const a = k * 2.4 + r * 6, rr = cw * (0.2 + hash(k, i) * 0.34);
-      out.box(x + Math.cos(a) * rr, top + 0.2 + hash(i + 3, k) * cw * 0.9, z + Math.sin(a) * rr, 0.09, 0.09, 0.09, 1.0, 0.86, 0.5, M.EMIS);
+    for (let k = 0; k < 14; k++) {
+      const a = k * 2.4 + r * 6, rr = cw * (0.15 + hash(k, i) * 0.4);
+      out.box(x + Math.cos(a) * rr, top + 0.2 + hash(i + 3, k) * cw * 0.9, z + Math.sin(a) * rr, 0.07, 0.07, 0.07, 1.0, 0.82, 0.5, M.EMIS, G.BLOB);
+    }
+  }
+}
+
+/** Fixed street furniture positions for the city. */
+export const SIGNALS = [[-92, -62], [-92, 0], [-92, 70], [-92, 158], [0, 158], [0, -62]];
+
+function streetDetail(cubes: Instances, w: World) {
+  const bx = (x0: number, x1: number, y0: number, y1: number, z0: number, z1: number, c: number[], mat = 1, geo = 0) =>
+    cubes.box((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2, x1 - x0, y1 - y0, z1 - z0, c[0], c[1], c[2], mat, geo);
+  // Traffic signals: a pole on the corner and a mast arm over the road.
+  for (const [x, z] of SIGNALS) {
+    const ns = x === -92, px = ns ? -83.4 : 7.4, pz = z - 7.4;
+    bx(px - 0.14, px + 0.14, 0, 6.6, pz - 0.14, pz + 0.14, DARK, M.METAL, G.CYL);
+    if (ns) bx(-97, px, 6.15, 6.35, pz - 0.08, pz + 0.08, DARK, M.METAL); else bx(-7, px, 6.15, 6.35, pz - 0.08, pz + 0.08, DARK, M.METAL);
+    for (const hx of ns ? [-88.6, -95.4] : [3.4, -3.4]) bx(hx - 0.22, hx + 0.22, 4.9, 6.15, pz - 0.18, pz + 0.18, [0.1, 0.1, 0.1], M.PLAIN);
+  }
+  // Benches facing the river, and a few hydrants.
+  for (const x of [-56, -36, 24, 44, -66]) {
+    const z = -167.6;
+    bx(x - 0.9, x + 0.9, 0.45, 0.5, z - 0.25, z + 0.25, WOODS, M.PLAIN); bx(x - 0.9, x + 0.9, 0.55, 0.95, z - 0.3, z - 0.26, WOODS, M.PLAIN);
+    for (const lx of [-0.75, 0.75]) bx(x + lx - 0.04, x + lx + 0.04, 0.05, 0.95, z - 0.3, z + 0.2, DARK, M.METAL);
+  }
+  for (const [x, z] of [[-83.6, -40], [-83.6, 30], [-7.4, -30], [7.4, 30], [-7.4, 120], [74.6, -40], [-83.6, 110]])
+    { bx(x - 0.16, x + 0.16, 0.1, 0.8, z - 0.16, z + 0.16, [0.80, 0.12, 0.10], M.PAINT, G.CYL); bx(x - 0.12, x + 0.12, 0.8, 0.95, z - 0.12, z + 0.12, [0.80, 0.12, 0.10], M.PAINT, G.BLOB); }
+  // Rooftop parapets and mechanical units on every building.
+  const solids = w.solids;
+  const covered = (x: number, z: number, y: number) => solids.some(s => !s.hide && s.y0 >= y - 0.2 && s.y0 <= y + 0.3 && x > s.x0 - 1 && x < s.x1 + 1 && z > s.z0 - 1 && z < s.z1 + 1);
+  for (let i = 0; i < solids.length; i++) {
+    const s = solids[i];
+    if (s.hide || s.ramp !== undefined || (s.mat !== M.FACADE && s.mat !== M.BRICK && s.mat !== M.GLASS) || s.y1 - s.y0 < 6) continue;
+    const lx = s.x1 - s.x0, lz = s.z1 - s.z0; if (lx < 6 || lz < 6) continue;
+    const c = (s.color || WALL).map(v => v * 0.92), t = 0.35, y = s.y1, ph = s.mat === M.GLASS ? 1.4 : 0.9;
+    bx(s.x0, s.x1, y, y + ph, s.z0, s.z0 + t, c, M.SNOWY); bx(s.x0, s.x1, y, y + ph, s.z1 - t, s.z1, c, M.SNOWY);
+    bx(s.x0, s.x0 + t, y, y + ph, s.z0 + t, s.z1 - t, c, M.SNOWY); bx(s.x1 - t, s.x1, y, y + ph, s.z0 + t, s.z1 - t, c, M.SNOWY);
+    if (s.mat !== M.GLASS) bx(s.x0 - 0.12, s.x1 + 0.12, y - 0.6, y - 0.35, s.z0 - 0.12, s.z1 + 0.12, c.map(v => v * 0.9), M.SNOWY);
+    const n = 1 + Math.floor(hash(i, 1) * Math.min(4, lx * lz / 300));
+    for (let k = 0; k < n; k++) {
+      const ux = s.x0 + 3 + hash(i, k + 3) * (lx - 6), uz = s.z0 + 3 + hash(i, k + 9) * (lz - 6), sw = 1.6 + hash(i, k) * 2.2, sd = 1.4 + hash(k, i) * 1.8;
+      if (covered(ux, uz, y)) continue;
+      bx(ux - sw / 2, ux + sw / 2, y, y + 1.3, uz - sd / 2, uz + sd / 2, [0.74, 0.75, 0.77], M.METAL);
+      bx(ux - 0.5, ux + 0.5, y + 1.3, y + 1.45, uz - 0.5, uz + 0.5, [0.25, 0.26, 0.28], M.METAL, G.CYL);
     }
   }
 }
 
 export function buildStatic(w: World): { cubes: Instances; wedges: Instances } {
-  const cubes = new Instances(4096), wedges = new Instances(64);
-  const bx = (x0: number, x1: number, y0: number, y1: number, z0: number, z1: number, c: number[], mat = 1) =>
-    cubes.box((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2, x1 - x0, y1 - y0, z1 - z0, c[0], c[1], c[2], mat);
+  const cubes = new Instances(8192), wedges = new Instances(64);
+  const bx = (x0: number, x1: number, y0: number, y1: number, z0: number, z1: number, c: number[], mat = 1, geo = 0) =>
+    cubes.box((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2, x1 - x0, y1 - y0, z1 - z0, c[0], c[1], c[2], mat, geo);
   const city = w.kind === 'city';
   if (!city) bx(w.minX - 1, w.maxX + 1, -1, 0, w.minZ - 1, w.maxZ + 1, FLOOR, 0);
   for (const s of w.solids) {
@@ -114,30 +177,30 @@ export function buildStatic(w: World): { cubes: Instances; wedges: Instances } {
   for (const r of w.rails) {
     const dx = r.bx - r.ax, dy = r.by - r.ay, dz = r.bz - r.az, len = Math.hypot(dx, dy, dz);
     const yaw = Math.atan2(dz, dx), pitch = Math.asin(dy / len);
-    const rc = city && r.edge ? STEEL : ORANGE;
-    cubes.push(chain(trans((r.ax + r.bx) / 2, (r.ay + r.by) / 2 - (r.edge ? 0.02 : 0.035), (r.az + r.bz) / 2), rotY(-yaw), rotZ(pitch),
-      scale(len, r.edge ? 0.05 : 0.07, r.edge ? 0.05 : 0.07)), rc[0], rc[1], rc[2], 1);
+    const rc = city && r.edge ? STEEL : ORANGE, th = r.edge ? 0.05 : 0.07;
+    cubes.push(chain(trans((r.ax + r.bx) / 2, (r.ay + r.by) / 2 - (r.edge ? 0.02 : 0.035), (r.az + r.bz) / 2), rotY(-yaw), rotZ(pitch - Math.PI / 2), scale(th, len, th)), rc[0], rc[1], rc[2], M.METAL, G.CYL);
     if (r.edge) continue;
     const n = Math.max(2, Math.round(len / 2.2));
     for (let i = 0; i <= n; i++) {
       const t = i / n, x = r.ax + dx * t, y = r.ay + dy * t, z = r.az + dz * t;
       const gy = ground(w, x, z, y).y;
-      if (y - gy > 0.08) bx(x - 0.03, x + 0.03, gy, y - 0.05, z - 0.03, z + 0.03, STEEL);
+      if (y - gy > 0.08) bx(x - 0.03, x + 0.03, gy, y - 0.05, z - 0.03, z + 0.03, STEEL, M.METAL, G.CYL);
     }
   }
   w.trees.forEach((t, i) => treeModel(cubes, w, t.x, t.z, t.y, t.h, !!t.lights, i));
   const dusk = w.env.weather === 'snowy' || w.env.weather === 'rainy';
   for (const [x, y, z] of w.lamps) {
-    bx(x - 0.07, x + 0.07, y, y + 4.6, z - 0.07, z + 0.07, [0.08, 0.08, 0.09]); bx(x - 0.16, x + 0.16, y, y + 0.5, z - 0.16, z + 0.16, [0.08, 0.08, 0.09]);
-    bx(x - 0.2, x + 0.2, y + 4.6, y + 5.1, z - 0.2, z + 0.2, dusk ? [1.0, 0.86, 0.6] : [0.93, 0.92, 0.88], dusk ? M.EMIS : M.PLAIN);
-    bx(x - 0.26, x + 0.26, y + 5.1, y + 5.2, z - 0.26, z + 0.26, [0.08, 0.08, 0.09]);
+    bx(x - 0.07, x + 0.07, y, y + 4.6, z - 0.07, z + 0.07, DARK, M.METAL, G.CYL); bx(x - 0.17, x + 0.17, y, y + 0.6, z - 0.17, z + 0.17, DARK, M.METAL, G.CYL);
+    bx(x - 0.24, x + 0.24, y + 4.55, y + 5.15, z - 0.24, z + 0.24, dusk ? [1.0, 0.86, 0.62] : [0.92, 0.92, 0.90], dusk ? M.EMIS : M.WINDOW, G.BLOB);
+    bx(x - 0.28, x + 0.28, y + 5.05, y + 5.2, z - 0.28, z + 0.28, DARK, M.METAL, G.CYL);
   }
-  for (const c of w.parked) carModel(cubes, chain(trans(c.x, 0, c.z), rotY(-c.yaw)), CARS[Math.abs(Math.round(c.hue)) % CARS.length], M.SNOWY);
+  for (const c of w.parked) carModel(cubes, chain(trans(c.x, 0, c.z), rotY(-c.yaw)), CARS[Math.abs(Math.round(c.hue)) % CARS.length], w.env.snow);
   // Uncut lawns read a little shaggier and darker until the mower has been over them.
   for (const f of w.fields) if (f.kind === 'lawn') {
     const y = f.z0 > 0 ? 0.16 : 0.05, g = w.env.season === 'fall' ? [0.44, 0.47, 0.22] : [0.30, 0.47, 0.20];
     bx(f.x0, f.x0 + f.nx * f.cell, y, y + 0.03, f.z0, f.z0 + f.nz * f.cell, g, M.GRASS);
   }
+  if (city) streetDetail(cubes, w);
   return { cubes, wedges };
 }
 
@@ -150,50 +213,52 @@ export function buildField(out: Instances, w: World, p: Player) {
     for (let j = 0; j < f.nz; j++) for (let i = 0; i < f.nx; i++) {
       const c = cells[j * f.nx + i]; if (!c) continue;
       const x = f.x0 + (i + 0.5) * f.cell, z = f.z0 + (j + 0.5) * f.cell;
-      if (lawn) { const l = c % 2 ? 1 : 0.84; out.box(x, y, z, f.cell, 0.02, f.cell, 0.46 * l, 0.72 * l, 0.32 * l, M.GRASS); }
-      else { const v = 0.17 + hash(i, j) * 0.04; out.box(x, y, z, f.cell, 0.02, f.cell, v, v + 0.01, v + 0.03, M.PLAIN); }
+      if (lawn) { const l = c % 2 ? 1 : 0.82; out.box(x, y, z, f.cell, 0.02, f.cell, 0.42 * l, 0.66 * l, 0.28 * l, M.GRASS); }
+      else { const v = 0.22 + hash(i, j) * 0.04; out.box(x, y, z, f.cell, 0.02, f.cell, v, v + 0.01, v + 0.03, M.ASPHALT); }
     }
   }
 }
 
 function part(out: Instances, root: M4, px: number, py: number, pz: number, ang: number, sx: number, len: number, sz: number, c: number[], roll = 0) {
-  out.push(chain(root, trans(px, py, pz), rotZ(ang), rotX(roll), trans(0, -len / 2, 0), scale(sx, len, sz)), c[0], c[1], c[2]);
+  out.push(chain(root, trans(px, py, pz), rotZ(ang), rotX(roll), trans(0, -len / 2, 0), scale(sx, len, sz)), c[0], c[1], c[2], M.PLAIN, G.CYL);
 }
 
 interface Pose { legL: number; legR: number; armL: number; armR: number; lean: number; legLen: number; twist: number; }
 
-function figure(out: Instances, root: M4, q: Pose, shirt = ORANGE, pants = SLATE, cap = INK) {
+function figure(out: Instances, root: M4, q: Pose, shirt = ORANGE, pants = SLATE, cap = INK, skin = SKIN) {
   const hip = 0.84 * q.legLen + 0.02;
   part(out, root, 0, hip, -0.1, q.legL, 0.17, 0.84 * q.legLen, 0.17, pants);
   part(out, root, 0, hip, 0.1, q.legR, 0.17, 0.84 * q.legLen, 0.17, pants);
   const up = chain(root, trans(0, hip, 0), rotZ(q.lean), rotY(q.twist));
-  boxAt(out, up, 0, 0.3, 0, 0.28, 0.6, 0.42, shirt);
-  boxAt(out, up, 0.02, 0.76, 0, 0.24, 0.26, 0.24, SKIN);
-  boxAt(out, up, -0.05, 0.84, 0, 0.3, 0.12, 0.28, cap);
-  part(out, up, 0, 0.56, -0.27, q.armL, 0.12, 0.6, 0.12, shirt);
-  part(out, up, 0, 0.56, 0.27, q.armR, 0.12, 0.6, 0.12, shirt);
+  boxAt(out, up, 0, 0.3, 0, 0.26, 0.6, 0.4, shirt, M.PLAIN);
+  boxAt(out, up, 0, 0.62, 0, 0.24, 0.14, 0.38, shirt, M.PLAIN, G.BLOB);
+  boxAt(out, up, 0.02, 0.8, 0, 0.24, 0.29, 0.23, skin, M.PLAIN, G.BLOB);
+  boxAt(out, up, -0.02, 0.9, 0, 0.27, 0.15, 0.26, cap, M.PLAIN, G.BLOB);
+  part(out, up, 0, 0.56, -0.25, q.armL, 0.11, 0.62, 0.11, shirt);
+  part(out, up, 0, 0.56, 0.25, q.armR, 0.11, 0.62, 0.11, shirt);
 }
 
 function board(out: Instances, m: M4, snow: boolean) {
   if (snow) {
-    boxAt(out, m, 0, 0.05, 0, 1.3, 0.035, 0.3, [0.10, 0.62, 0.66]); boxAt(out, m, 0.72, 0.07, 0, 0.2, 0.035, 0.26, [0.10, 0.62, 0.66]); boxAt(out, m, -0.72, 0.07, 0, 0.2, 0.035, 0.26, [0.10, 0.62, 0.66]);
+    const TEAL = [0.10, 0.62, 0.66];
+    boxAt(out, m, 0, 0.05, 0, 1.3, 0.035, 0.3, TEAL, M.PAINT); boxAt(out, m, 0.72, 0.07, 0, 0.22, 0.035, 0.3, TEAL, M.PAINT, G.CYL); boxAt(out, m, -0.72, 0.07, 0, 0.22, 0.035, 0.3, TEAL, M.PAINT, G.CYL);
     boxAt(out, m, 0, 0.071, 0, 0.9, 0.004, 0.08, ORANGE); for (const x of [-0.25, 0.25]) boxAt(out, m, x, 0.1, 0, 0.12, 0.07, 0.3, INK);
     return;
   }
   boxAt(out, m, 0, 0.1, 0, 0.86, 0.035, 0.24, INK); boxAt(out, m, 0, 0.121, 0, 0.5, 0.004, 0.06, ORANGE);
-  for (const x of [-0.27, 0.27]) for (const z of [-0.09, 0.09]) boxAt(out, m, x, 0.04, z, 0.08, 0.08, 0.05, WHITE);
+  for (const x of [-0.27, 0.27]) for (const z of [-0.09, 0.09]) out.push(chain(m, trans(x, 0.04, z), rotX(Math.PI / 2), scale(0.08, 0.05, 0.08)), WHITE[0], WHITE[1], WHITE[2], M.PLAIN, G.CYL);
 }
 
 function cart(out: Instances, m: M4, wob: number) {
-  const b = (x: number, y: number, z: number, sx: number, sy: number, sz: number, c = STEEL) => boxAt(out, m, x, y, z, sx, sy, sz, c);
+  const b = (x: number, y: number, z: number, sx: number, sy: number, sz: number, c = STEEL) => boxAt(out, m, x, y, z, sx, sy, sz, c, M.METAL);
   b(0, 0.34, 0, 0.9, 0.03, 0.56); b(0, 0.13, 0, 0.8, 0.03, 0.4);
   for (const x of [-0.43, 0.43]) for (const z of [-0.265, 0.265]) b(x, 0.58, z, 0.03, 0.5, 0.03);
   for (const y of [0.58, 0.83]) { for (const z of [-0.265, 0.265]) b(0, y, z, 0.9, 0.03, 0.03); for (const x of [-0.43, 0.43]) b(x, y, 0, 0.03, 0.03, 0.56); }
   for (const x of [-0.22, 0, 0.22]) for (const z of [-0.265, 0.265]) b(x, 0.58, z, 0.02, 0.5, 0.02);
-  b(-0.53, 0.95, 0, 0.04, 0.04, 0.62, ORANGE); for (const z of [-0.265, 0.265]) b(-0.48, 0.89, z, 0.12, 0.03, 0.03);
+  boxAt(out, m, -0.53, 0.95, 0, 0.05, 0.05, 0.62, ORANGE, M.PLAIN); for (const z of [-0.265, 0.265]) b(-0.48, 0.89, z, 0.12, 0.03, 0.03);
   for (const x of [-0.36, 0.36]) for (const z of [-0.2, 0.2]) {
     const wm = x > 0 && z > 0 ? chain(m, trans(x, 0.05, z), rotY(wob)) : chain(m, trans(x, 0.05, z));
-    out.push(mul(wm, scale(0.11, 0.1, 0.04)), INK[0], INK[1], INK[2]);
+    wheel(out, wm, 0, 0, 0, 0.11, 0.04, false);
   }
 }
 
@@ -251,22 +316,22 @@ function drawPlayer(out: Instances, w: World, p: Player, v: View) {
     part(out, body, st, hip, 0, 0.12 + (crouch < 1 ? 0.3 : 0), 0.17, 0.86 * crouch, 0.19, SLATE);
     part(out, body, -st, hip, 0, -0.12 - (crouch < 1 ? 0.3 : 0) - Math.max(0, push) * 0.9, 0.17, 0.86 * crouch, 0.19, SLATE);
     const up = chain(body, trans(0, hip, 0), rotZ(manual ? 0.3 : towed ? 0.12 : -0.12), rotY(towed ? 0.55 : 1.05));
-    boxAt(out, up, 0, 0.3, 0, 0.28, 0.6, 0.42, shirt); boxAt(out, up, 0.02, 0.76, 0, 0.24, 0.26, 0.24, SKIN); boxAt(out, up, -0.05, 0.84, 0, 0.3, 0.12, 0.28, cap);
-    if (towed) { part(out, up, 0.05, 0.54, -0.2, 1.35, 0.12, 0.62, 0.12, shirt, -0.25); part(out, up, 0.05, 0.54, 0.2, 1.35, 0.12, 0.62, 0.12, shirt, 0.6); }
+    boxAt(out, up, 0, 0.3, 0, 0.26, 0.6, 0.4, shirt); boxAt(out, up, 0, 0.62, 0, 0.24, 0.14, 0.38, shirt, M.PLAIN, G.BLOB);
+    boxAt(out, up, 0.02, 0.8, 0, 0.24, 0.29, 0.23, SKIN, M.PLAIN, G.BLOB); boxAt(out, up, -0.02, 0.9, 0, 0.27, 0.15, 0.26, cap, M.PLAIN, G.BLOB);
+    if (towed) { part(out, up, 0.05, 0.54, -0.2, 1.35, 0.11, 0.62, 0.11, shirt, -0.25); part(out, up, 0.05, 0.54, 0.2, 1.35, 0.11, 0.62, 0.11, shirt, 0.6); }
     else {
       const arm = air || manual || p.state === 'grind' ? 1.25 : 0.25;
-      part(out, up, 0, 0.56, -0.27, 0, 0.12, 0.6, 0.12, shirt, arm); part(out, up, 0, 0.56, 0.27, 0, 0.12, 0.6, 0.12, shirt, -arm);
+      part(out, up, 0, 0.56, -0.25, 0, 0.11, 0.62, 0.11, shirt, arm); part(out, up, 0, 0.56, 0.25, 0, 0.11, 0.62, 0.11, shirt, -arm);
     }
   } else if (p.mode === 'kayak') {
     const bob = Math.sin(p.time * 2.1) * 0.03;
     const root = chain(trans(p.x, v.y + 0.02 + bob, p.z), rotY(-p.yaw), rotX(Math.sin(v.phase * 0.5) * 0.05 * k));
     const HULL = [0.95, 0.72, 0.12];
-    boxAt(out, root, 0, 0.12, 0, 2.3, 0.3, 0.66, HULL); boxAt(out, root, 1.45, 0.13, 0, 0.7, 0.26, 0.44, HULL); boxAt(out, root, -1.45, 0.13, 0, 0.7, 0.26, 0.44, HULL);
-    boxAt(out, root, 1.95, 0.14, 0, 0.4, 0.2, 0.2, HULL); boxAt(out, root, -1.95, 0.14, 0, 0.4, 0.2, 0.2, HULL); boxAt(out, root, -0.1, 0.28, 0, 0.9, 0.04, 0.5, INK);
+    boxAt(out, root, 0, 0.12, 0, 4.4, 0.3, 0.66, HULL, M.PAINT, G.BLOB); boxAt(out, root, -0.1, 0.27, 0, 0.9, 0.05, 0.5, INK, M.PLAIN, G.CYL);
     const stroke = p.pushing ? Math.sin(v.phase * 1.6) : Math.sin(p.time * 0.8) * 0.15;
     figure(out, chain(root, trans(-0.15, 0.2, 0)), { legL: 1.5, legR: 1.5, armL: 1.1 + stroke * 0.3, armR: 1.1 - stroke * 0.3, lean: -0.12, legLen: 0.5, twist: stroke * 0.35 }, shirt, SLATE, cap);
     const pm = chain(root, trans(0.2, 0.95, 0), rotX(stroke * 0.75), rotY(stroke * 0.3));
-    boxAt(out, pm, 0, 0, 0, 0.05, 0.05, 2.3, INK); boxAt(out, pm, 0, 0, 1.2, 0.05, 0.22, 0.42, ORANGE); boxAt(out, pm, 0, 0, -1.2, 0.05, 0.22, 0.42, ORANGE);
+    boxAt(out, pm, 0, 0, 0, 0.05, 0.05, 2.3, INK, M.METAL); boxAt(out, pm, 0, 0, 1.2, 0.05, 0.22, 0.42, ORANGE, M.PLAIN, G.BLOB); boxAt(out, pm, 0, 0, -1.2, 0.05, 0.22, 0.42, ORANGE, M.PLAIN, G.BLOB);
   } else {
     let root = chain(trans(p.x, v.y, p.z), rotY(-p.yaw));
     if (trick > 0) root = chain(root, rotY(Math.PI * 2 * trick));
@@ -284,7 +349,7 @@ function drawPlayer(out: Instances, w: World, p: Player, v: View) {
 
 function drawCar(out: Instances, c: Car, t: number) {
   const m = chain(trans(c.x, 0, c.z), rotY(-c.yaw));
-  if (c.kind === 'truck') pickupModel(out, m, [0.78, 0.12, 0.10]);
+  if (c.kind === 'truck') pickupModel(out, m, [0.72, 0.08, 0.07]);
   else if (c.kind === 'plow') plowModel(out, m, t + c.hue, c.hue);
   else carModel(out, m, CARS[c.hue % CARS.length]);
 }
@@ -301,19 +366,26 @@ function drawCity(out: Instances, w: World, p: Player, v: View) {
     const cx = (tr.x0 + tr.x1) / 2, wd = tr.x1 - tr.x0, carL = (TRAIN_HALF * 2 - 1.8) / 4;
     for (let c = 0; c < 4; c++) {
       const cz = s.z - TRAIN_HALF + carL / 2 + c * (carL + 0.6);
-      out.box(cx, 2.1, cz, wd, 3.2, carL, 0.86, 0.87, 0.88); out.box(cx, 1.2, cz, wd + 0.04, 0.7, carL + 0.02, ORANGE[0], ORANGE[1], ORANGE[2]);
-      out.box(cx, 2.45, cz, wd + 0.04, 0.9, carL - 1.2, 0.12, 0.15, 0.2); out.box(cx, 0.35, cz, wd - 0.6, 0.5, carL - 2, INK[0], INK[1], INK[2]);
+      out.box(cx, 2.1, cz, wd, 3.2, carL, 0.86, 0.87, 0.88, M.METAL); out.box(cx, 1.2, cz, wd + 0.04, 0.7, carL + 0.02, ORANGE[0], ORANGE[1], ORANGE[2], M.PAINT);
+      out.box(cx, 2.45, cz, wd + 0.04, 0.9, carL - 1.2, 0.12, 0.15, 0.2, M.WINDOW); out.box(cx, 0.35, cz, wd - 0.6, 0.5, carL - 2, INK[0], INK[1], INK[2]);
+      out.box(cx, 3.75, cz, wd - 0.3, 0.12, carL - 0.4, 0.6, 0.62, 0.65, M.METAL);
     }
     const front = s.v >= 0 ? s.z + TRAIN_HALF : s.z - TRAIN_HALF;
-    out.box(cx, 2.0, front, wd + 0.05, 2.6, 0.12, ORANGE[0], ORANGE[1], ORANGE[2]);
+    out.box(cx, 2.0, front, wd + 0.05, 2.6, 0.12, ORANGE[0], ORANGE[1], ORANGE[2], M.PAINT);
     for (const dx of [-0.9, 0.9]) out.box(cx + dx, 1.0, front + (s.v >= 0 ? 0.08 : -0.08), 0.3, 0.2, 0.05, HEAD[0], HEAD[1], HEAD[2], M.EMIS);
   }
   // Highway traffic on the viaduct. Decoration only.
   for (let i = 0; i < 12; i++) {
     const north = i % 2 === 0, x = north ? -244 : -232;
-    const z = ((t * (24 + (i % 3) * 3) + i * 97) % 640) - 340, c = CARS[i % CARS.length];
-    out.box(x + (i % 4 < 2 ? 0 : 4), 10.25, north ? -z - 40 : z, 1.9, 1.4, 4.4, c[0], c[1], c[2]);
+    const z = ((t * (24 + (i % 3) * 3) + i * 97) % 640) - 340;
+    carModel(out, chain(trans(x + (i % 4 < 2 ? 0 : 4), 9.5, north ? -z - 40 : z), rotY(north ? Math.PI / 2 : -Math.PI / 2)), CARS[i % CARS.length]);
   }
+  // Traffic signals cycle; the lit lamp is the only part that changes.
+  SIGNALS.forEach(([x, z], i) => {
+    const ns = x === -92, pz = z - 7.4, ph = (t + i * 7) % 24, green = ph < 9, amber = ph >= 9 && ph < 12;
+    const ly = green ? 5.15 : amber ? 5.5 : 5.85, c = green ? [0.2, 1.0, 0.45] : amber ? [1.0, 0.7, 0.1] : [1.0, 0.12, 0.08];
+    for (const hx of ns ? [-88.6, -95.4] : [3.4, -3.4]) for (const fz of [-0.19, 0.19]) out.push(chain(trans(hx, ly, pz + fz), rotX(Math.PI / 2), scale(0.24, 0.03, 0.24)), c[0], c[1], c[2], M.EMIS, G.CYL);
+  });
   for (const c of p.cars) drawCar(out, c, t);
   for (let i = 0; i < p.rides.length; i++) if (i !== p.ride) drawRide(out, p.rides[i], w, t);
   // The bungee.
@@ -321,21 +393,27 @@ function drawCity(out: Instances, w: World, p: Player, v: View) {
     const tk = p.cars[0], ax = tk.x - tk.hx * (tk.len / 2 + 0.3), az = tk.z - tk.hz * (tk.len / 2 + 0.3), ay = 0.68;
     let bx = ax - tk.hx * 1.2, bz = az - tk.hz * 1.2, by = 0.12;
     if (p.tow.rope) { bx = p.x + Math.cos(p.yaw) * 0.45; bz = p.z + Math.sin(p.yaw) * 0.45; by = v.y + (p.mode === 'cart' ? 0.95 : 1.02); }
-    const d = Math.hypot(bx - ax, bz - az), sag = p.tow.rope ? Math.max(0, ROPE - d) * 0.3 : 0, yaw = Math.atan2(bz - az, bx - ax), N = 14;
-    for (let i = 0; i < N; i++) {
-      const u = (i + 0.5) / N, y = Math.max(0.07, ay + (by - ay) * u - sag * 4 * u * (1 - u));
-      out.push(chain(trans(ax + (bx - ax) * u, y, az + (bz - az) * u), rotY(-yaw), scale(d / N + 0.02, 0.055, 0.055)), LIME[0], LIME[1], LIME[2], M.EMIS);
+    const d = Math.hypot(bx - ax, bz - az), sag = p.tow.rope ? Math.max(0, ROPE - d) * 0.3 : 0, N = 18;
+    let px = ax, py = ay, pz = az;
+    for (let i = 1; i <= N; i++) {
+      const u = i / N, x = ax + (bx - ax) * u, z = az + (bz - az) * u, y = Math.max(0.07, ay + (by - ay) * u - sag * 4 * u * (1 - u));
+      const sx = x - px, sy = y - py, sz = z - pz, l = Math.hypot(sx, sy, sz) || 0.01;
+      out.push(chain(trans((x + px) / 2, (y + py) / 2, (z + pz) / 2), rotY(-Math.atan2(sz, sx)), rotZ(Math.asin(sy / l) - Math.PI / 2), scale(0.05, l + 0.02, 0.05)), LIME[0], LIME[1], LIME[2], M.EMIS, G.CYL);
+      px = x; py = y; pz = z;
     }
-    if (p.tow.rope) out.push(chain(trans(bx, by, bz), rotY(-yaw), scale(0.05, 0.05, 0.5)), INK[0], INK[1], INK[2]);
+    if (p.tow.rope) out.push(chain(trans(bx, by, bz), rotY(-Math.atan2(bz - az, bx - ax)), rotX(Math.PI / 2), scale(0.05, 0.5, 0.05)), INK[0], INK[1], INK[2], M.PLAIN, G.CYL);
   }
-  if (w.turbine) for (let k = 0; k < 3; k++)
-    out.push(chain(trans(w.turbine[0], w.turbine[1], w.turbine[2]), rotZ(t * 0.7 + k * 2.094), trans(0, 19, 0), scale(1.5, 38, 0.4)), 0.95, 0.95, 0.95);
+  if (w.turbine) {
+    out.box(w.turbine[0], w.turbine[1], w.turbine[2] + 2.4, 2.2, 2.2, 4.5, 0.95, 0.95, 0.95, M.PAINT);
+    for (let k = 0; k < 3; k++)
+      out.push(chain(trans(w.turbine[0], w.turbine[1], w.turbine[2]), rotZ(t * 0.7 + k * 2.094), trans(0, 19, 0), scale(1.5, 38, 0.4)), 0.95, 0.95, 0.95, M.PAINT);
+  }
   // Ford rivets still to be found.
   for (let i = 0; i < w.rivets.length; i++) {
     if (p.rivets[i]) continue;
     const r = w.rivets[i]; if (Math.abs(r[0] - p.x) + Math.abs(r[2] - p.z) > 320) continue;
-    const m = chain(trans(r[0], r[1] + Math.sin(t * 2 + i) * 0.15, r[2]), rotY(t * 1.6 + i), rotZ(0.6), rotX(0.6));
-    out.push(mul(m, scale(0.5, 0.5, 0.5)), 1.0, 0.62, 0.05, M.EMIS); out.push(mul(m, scale(0.2, 0.75, 0.2)), 0.45, 0.25, 0.1);
+    const m = chain(trans(r[0], r[1] + Math.sin(t * 2 + i) * 0.15, r[2]), rotY(t * 1.6 + i));
+    out.push(mul(m, scale(0.62, 0.62, 0.62)), 1.0, 0.62, 0.05, M.EMIS, G.BLOB); out.push(chain(m, trans(0, -0.45, 0), scale(0.22, 0.7, 0.22)), 0.62, 0.42, 0.2, M.METAL, G.CYL);
   }
   const cold = env.snow || env.season === 'fall', rain = env.weather === 'rainy';
   for (const n of p.npcs) {
@@ -344,21 +422,21 @@ function drawCity(out: Instances, w: World, p: Player, v: View) {
     const ph = t * 6 + n.hue * 1.7, sw = Math.sin(ph), k = Math.min(1, n.speedNow / 2.2);
     if (n.kind === 'goose') {
       const chase = n.state === 2, g = [0.50, 0.44, 0.38];
-      boxAt(out, root, 0, 0.36, 0, 0.55, 0.3, 0.3, g); boxAt(out, root, -0.3, 0.42, 0, 0.16, 0.14, 0.2, WHITE);
+      boxAt(out, root, 0, 0.36, 0, 0.6, 0.32, 0.32, g, M.PLAIN, G.BLOB); boxAt(out, root, -0.3, 0.4, 0, 0.18, 0.16, 0.22, WHITE, M.PLAIN, G.BLOB);
       const neck = chain(root, trans(0.24, 0.45, 0), rotZ(chase ? -1.0 : 0.15));
-      boxAt(out, neck, 0, 0.25, 0, 0.09, 0.5, 0.09, INK); boxAt(out, neck, 0.07, 0.5, 0, 0.22, 0.11, 0.11, INK); boxAt(out, neck, 0.02, 0.44, 0, 0.1, 0.05, 0.12, WHITE);
-      boxAt(out, root, 0, 0.1 + Math.abs(sw) * 0.04 * k, -0.07, 0.05, 0.2, 0.05, ORANGE); boxAt(out, root, 0, 0.1 + Math.abs(Math.cos(ph)) * 0.04 * k, 0.07, 0.05, 0.2, 0.05, ORANGE);
-      if (chase) { boxAt(out, chain(root, trans(0, 0.45, -0.3), rotX(-0.6)), 0, 0, 0, 0.4, 0.04, 0.4, g); boxAt(out, chain(root, trans(0, 0.45, 0.3), rotX(0.6)), 0, 0, 0, 0.4, 0.04, 0.4, g); }
+      boxAt(out, neck, 0, 0.25, 0, 0.09, 0.5, 0.09, INK, M.PLAIN, G.CYL); boxAt(out, neck, 0.07, 0.5, 0, 0.2, 0.12, 0.12, INK, M.PLAIN, G.BLOB); boxAt(out, neck, 0.02, 0.44, 0, 0.1, 0.05, 0.12, WHITE);
+      boxAt(out, root, 0, 0.1 + Math.abs(sw) * 0.04 * k, -0.07, 0.05, 0.2, 0.05, ORANGE, M.PLAIN, G.CYL); boxAt(out, root, 0, 0.1 + Math.abs(Math.cos(ph)) * 0.04 * k, 0.07, 0.05, 0.2, 0.05, ORANGE, M.PLAIN, G.CYL);
+      if (chase) { boxAt(out, chain(root, trans(0, 0.45, -0.3), rotX(-0.6)), 0, 0, 0, 0.42, 0.05, 0.42, g, M.PLAIN, G.BLOB); boxAt(out, chain(root, trans(0, 0.45, 0.3), rotX(0.6)), 0, 0, 0, 0.42, 0.05, 0.42, g, M.PLAIN, G.BLOB); }
     } else if (n.kind === 'guard') {
       const run = n.state === 2 ? 1 : k;
       figure(out, root, { legL: sw * 0.9 * run, legR: -sw * 0.9 * run, armL: n.state === 2 ? 1.6 : -sw * 0.6 * run, armR: sw * 0.7 * run, lean: -0.2 * run, legLen: 1, twist: 0 }, NAVY, INK, NAVY);
-      boxAt(out, root, 0.15, 1.2, 0.12, 0.02, 0.1, 0.1, [0.95, 0.8, 0.2]);
+      boxAt(out, root, 0.15, 1.2, 0.12, 0.02, 0.1, 0.1, [0.95, 0.8, 0.2], M.METAL);
     } else {
       const sc = n.state === 1;
       const top = cold ? COATS[n.hue % COATS.length] : SHIRTS[n.hue % SHIRTS.length];
       figure(out, root, { legL: sw * 0.6 * k, legR: -sw * 0.6 * k, armL: sc ? 2.8 : -sw * 0.5 * k, armR: sc ? 2.6 : rain ? 1.9 : sw * 0.5 * k, lean: sc ? 0.15 : -0.05, legLen: 1, twist: 0 },
-        top, n.hue % 3 ? SLATE : [0.45, 0.38, 0.30], cold ? SHIRTS[(n.hue + 3) % SHIRTS.length] : n.hue % 4 ? SKIN : INK);
-      if (rain && !sc) { const u = SHIRTS[(n.hue + 1) % SHIRTS.length]; boxAt(out, root, 0.2, 2.02, 0.2, 1.15, 0.07, 1.15, u); boxAt(out, root, 0.2, 1.6, 0.2, 0.03, 0.8, 0.03, INK); }
+        top, n.hue % 3 ? SLATE : [0.45, 0.38, 0.30], cold ? SHIRTS[(n.hue + 3) % SHIRTS.length] : HAIR[n.hue % HAIR.length], SKINS[n.hue % SKINS.length]);
+      if (rain && !sc) { const u = SHIRTS[(n.hue + 1) % SHIRTS.length]; out.push(chain(root, trans(0.2, 2.02, 0.2), scale(1.15, 0.36, 1.15)), u[0], u[1], u[2], M.PLAIN, G.BLOB); boxAt(out, root, 0.2, 1.6, 0.2, 0.03, 0.8, 0.03, INK, M.METAL, G.CYL); }
     }
   }
 }
@@ -376,23 +454,24 @@ export function buildDynamic(out: Instances, w: World, p: Player, v: View, dt: n
     if (Math.abs(q.x - p.x) + Math.abs(q.z - p.z) > 260) continue;
     if (q.kind === 'leaves') {
       if (q.gone > 0) continue;
-      out.box(q.x, q.y + 0.2, q.z, 1.7, 0.4, 1.7, 0.84, 0.46, 0.12); out.box(q.x + 0.15, q.y + 0.5, q.z - 0.1, 1.1, 0.34, 1.1, 0.76, 0.24, 0.10); out.box(q.x - 0.2, q.y + 0.74, q.z + 0.1, 0.6, 0.26, 0.6, 0.93, 0.72, 0.18);
+      out.box(q.x, q.y + 0.2, q.z, 2.0, 0.6, 2.0, 0.84, 0.46, 0.12, M.LEAF, G.BLOB); out.box(q.x + 0.2, q.y + 0.45, q.z - 0.15, 1.3, 0.55, 1.3, 0.76, 0.24, 0.10, M.LEAF, G.BLOB); out.box(q.x - 0.25, q.y + 0.6, q.z + 0.15, 0.8, 0.45, 0.8, 0.93, 0.72, 0.18, M.LEAF, G.BLOB);
       continue;
     }
     if (q.kind === 'snowman') {
       if (q.gone > 0) continue;
-      const a = i * 1.3, c = Math.cos(a), s = Math.sin(a);
-      out.box(q.x, q.y + 0.45, q.z, 0.9, 0.9, 0.9, 0.97, 0.98, 1.0); out.box(q.x, q.y + 1.2, q.z, 0.66, 0.66, 0.66, 0.97, 0.98, 1.0); out.box(q.x, q.y + 1.74, q.z, 0.46, 0.46, 0.46, 0.97, 0.98, 1.0);
-      out.box(q.x + c * 0.3, q.y + 1.74, q.z + s * 0.3, 0.2, 0.08, 0.2, ORANGE[0], ORANGE[1], ORANGE[2]); out.box(q.x, q.y + 2.04, q.z, 0.5, 0.14, 0.5, INK[0], INK[1], INK[2]); out.box(q.x, q.y + 2.2, q.z, 0.32, 0.24, 0.32, INK[0], INK[1], INK[2]);
-      out.box(q.x - s * 0.55, q.y + 1.3, q.z + c * 0.55, 0.06, 0.06, 0.6, 0.3, 0.2, 0.14); out.box(q.x + s * 0.55, q.y + 1.3, q.z - c * 0.55, 0.06, 0.06, 0.6, 0.3, 0.2, 0.14);
+      const a = i * 1.3, c = Math.cos(a), s = Math.sin(a), S = [0.97, 0.98, 1.0];
+      out.box(q.x, q.y + 0.45, q.z, 0.95, 0.9, 0.95, S[0], S[1], S[2], M.SNOWY, G.BLOB); out.box(q.x, q.y + 1.2, q.z, 0.7, 0.68, 0.7, S[0], S[1], S[2], M.SNOWY, G.BLOB); out.box(q.x, q.y + 1.74, q.z, 0.5, 0.48, 0.5, S[0], S[1], S[2], M.SNOWY, G.BLOB);
+      out.push(chain(trans(q.x + c * 0.3, q.y + 1.74, q.z + s * 0.3), rotY(-a), rotZ(-Math.PI / 2), scale(0.08, 0.3, 0.08)), ORANGE[0], ORANGE[1], ORANGE[2], M.PLAIN, G.CYL);
+      out.box(q.x, q.y + 2.0, q.z, 0.5, 0.05, 0.5, INK[0], INK[1], INK[2], M.PLAIN, G.CYL); out.box(q.x, q.y + 2.16, q.z, 0.32, 0.3, 0.32, INK[0], INK[1], INK[2], M.PLAIN, G.CYL);
+      for (const sd of [1, -1]) out.push(chain(trans(q.x - s * 0.55 * sd, q.y + 1.32, q.z + c * 0.55 * sd), rotY(-a), rotX(0.5 * sd), scale(0.05, 0.62, 0.05)), 0.3, 0.2, 0.14, M.PLAIN, G.CYL);
       continue;
     }
     const upright = Math.abs(Math.cos(q.rx) * Math.cos(q.rz)) > 0.5;
     if (q.kind === 'cone') {
       const m = chain(trans(q.x, q.y + (upright || !q.rest ? 0.26 : 0.13), q.z), rotX(q.rx), rotY(q.ry), rotZ(q.rz));
-      boxAt(out, m, 0, -0.24, 0, 0.38, 0.04, 0.38, ORANGE); boxAt(out, m, 0, 0, 0, 0.2, 0.46, 0.2, ORANGE); boxAt(out, m, 0, 0.05, 0, 0.21, 0.1, 0.21, WHITE);
+      boxAt(out, m, 0, -0.24, 0, 0.4, 0.04, 0.4, ORANGE); boxAt(out, m, 0, -0.02, 0, 0.24, 0.42, 0.24, ORANGE, M.PLAIN, G.CYL); boxAt(out, m, 0, 0.05, 0, 0.21, 0.09, 0.21, WHITE, M.PLAIN, G.CYL);
     } else {
-      out.push(chain(trans(q.x, q.y + 0.25, q.z), rotX(q.rx), rotY(q.ry), rotZ(q.rz), scale(0.5, 0.5, 0.5)), CRATE[0], CRATE[1], CRATE[2]);
+      out.push(chain(trans(q.x, q.y + 0.25, q.z), rotX(q.rx), rotY(q.ry), rotZ(q.rz), scale(0.5, 0.5, 0.5)), CRATE[0], CRATE[1], CRATE[2], M.SNOWY);
     }
   }
 }

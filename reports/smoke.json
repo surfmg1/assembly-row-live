@@ -5,8 +5,8 @@
     "fpsMed": 10,
     "fpsLow": 10,
     "simUs": 0,
-    "drawCalls": 9,
-    "boxes": 2753,
-    "staticBoxes": 2045
+    "drawCalls": 226,
+    "boxes": 4908,
+    "staticBoxes": 3720
   }
 }
