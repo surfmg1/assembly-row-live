@@ -31,7 +31,7 @@ function moveToward(w: World, n: Npc, tx: number, tz: number, speed: number, dt:
   n.y = g.y;
 }
 
-export interface PlayerView { x: number; y: number; z: number; vx: number; vz: number; mode: string; state: string; }
+export interface PlayerView { x: number; y: number; z: number; vx: number; vz: number; mode: string; state: string; towed?: boolean; }
 
 /** Advances every NPC. Returns 'goose' or 'busted' when one of them gets the player. */
 export function stepNpcs(w: World, p: PlayerView, npcs: Npc[], dt: number, bumps: number[]): '' | 'goose' | 'busted' {
@@ -52,7 +52,7 @@ export function stepNpcs(w: World, p: PlayerView, npcs: Npc[], dt: number, bumps
       n.y = ground(w, n.x, n.z, 0.5).y;
     } else if (n.kind === 'goose') {
       const home = Math.hypot(p.x - n.hx, p.z - n.hz);
-      if (live && near && home < 17 && p.mode !== 'kayak' && p.z > -175.5) {
+      if (live && near && home < 17 && p.mode !== 'kayak' && p.mode !== 'drive' && p.z > -175.5) {
         n.state = 2;
         moveToward(w, n, p.x, Math.max(-175, p.z), n.speed, dt, false);
         if (dist < 0.75 && n.timer <= 0) { n.timer = 3; out = 'goose'; }
@@ -63,7 +63,7 @@ export function stepNpcs(w: World, p: PlayerView, npcs: Npc[], dt: number, bumps
       }
     } else {
       const home = Math.hypot(p.x - n.hx, p.z - n.hz);
-      if (n.state !== 2 && live && p.mode === 'skate' && home < 30 && near) { n.state = 2; n.timer = 14; }
+      if (n.state !== 2 && live && p.mode === 'skate' && !p.towed && home < 17 && near) { n.state = 2; n.timer = 14; }
       if (n.state === 2) {
         if (!live || dist > 48 || n.timer <= 0 || p.mode === 'kayak') n.state = 0;
         else {

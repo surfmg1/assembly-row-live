@@ -1,7 +1,7 @@
 // World description for the movement lab. Pure data + queries, no DOM, no rendering.
 // Units are meters. +x east, +y up, +z south. Heading yaw 0 faces +x.
 
-export type Surf = 'concrete' | 'steel' | 'wood' | 'water' | 'grass';
+export type Surf = 'concrete' | 'steel' | 'wood' | 'water' | 'grass' | 'snow';
 
 /** Axis-aligned solid. A ramp is a wedge whose top rises along one axis. */
 export interface Solid {
@@ -49,9 +49,67 @@ export interface Rail {
   edge?: boolean;
 }
 
-export interface PropSeed { x: number; y: number; z: number; kind: 'cone' | 'crate'; }
+export interface PropSeed { x: number; y: number; z: number; kind: 'cone' | 'crate' | 'leaves' | 'snowman'; }
 
-export interface Spawn { name: string; x: number; y: number; z: number; yaw: number; mode: 'foot' | 'skate' | 'cart' | 'kayak'; }
+export interface Spawn { name: string; x: number; y: number; z: number; yaw: number; mode: 'foot' | 'skate' | 'cart' | 'kayak'; tow?: boolean; }
+
+export type Season = 'spring' | 'summer' | 'fall' | 'winter';
+export type Weather = 'sunny' | 'rainy' | 'snowy' | 'blustery';
+export interface Env { season: Season; weather: Weather; /** snow on the ground */ snow: boolean; /** wet streets */ wet: boolean; }
+export const makeEnv = (season: Season, weather: Weather): Env => ({ season, weather, snow: season === 'winter' || weather === 'snowy', wet: weather === 'rainy' });
+
+/** A closed driving loop, resampled at even spacing. */
+export interface Path { x: Float32Array; z: Float32Array; hx: Float32Array; hz: Float32Array; corner: Uint8Array; n: number; ds: number; len: number; }
+export interface CarSeed { kind: 'car' | 'plow' | 'truck'; s: number; dir: 1 | -1; off: number; speed: number; hue: number; }
+export interface FieldSeed { kind: 'lawn' | 'snow'; name: string; x0: number; z0: number; nx: number; nz: number; cell: number; }
+export interface RideSeed { kind: 'mower' | 'plow'; x: number; z: number; yaw: number; }
+export interface SignSeed { text: string; x: number; y: number; z: number; face: 0 | 1 | 2 | 3; h: number; color: string; bg?: string; glow?: boolean; }
+export interface TreeSeed { x: number; z: number; y: number; h: number; lights?: boolean; }
+export interface ParkedSeed { x: number; z: number; yaw: number; hue: number; }
+
+/** Build a clockwise loop through corner points with rounded right-hand turns. */
+export function buildLoop(corners: number[][], r: number): Path {
+  const pts: number[] = [], flags: number[] = [];
+  const n = corners.length;
+  for (let i = 0; i < n; i++) {
+    const a = corners[(i + n - 1) % n], b = corners[i], c = corners[(i + 1) % n];
+    let dx = b[0] - a[0], dz = b[1] - a[1]; const l = Math.hypot(dx, dz); dx /= l; dz /= l;
+    let ex = c[0] - b[0], ez = c[1] - b[1]; const m = Math.hypot(ex, ez); ex /= m; ez /= m;
+    // straight from the previous corner's exit to this corner's entry
+    const sx = a[0] + dx * r, sz = a[1] + dz * r, len = l - 2 * r;
+    for (let d = 0; d < len; d += 0.25) { pts.push(sx + dx * d, sz + dz * d); flags.push(0); }
+    const p0x = b[0] - dx * r, p0z = b[1] - dz * r, cx = p0x + ex * r, cz = p0z + ez * r;
+    const steps = Math.ceil(Math.PI / 2 * r / 0.25);
+    for (let k = 0; k < steps; k++) { const t = k / steps * Math.PI / 2; pts.push(cx - ex * r * Math.cos(t) + dx * r * Math.sin(t), cz - ez * r * Math.cos(t) + dz * r * Math.sin(t)); flags.push(1); }
+  }
+  const m = pts.length / 2; const cum = new Float64Array(m + 1);
+  for (let i = 0; i < m; i++) { const j = (i + 1) % m; cum[i + 1] = cum[i] + Math.hypot(pts[j * 2] - pts[i * 2], pts[j * 2 + 1] - pts[i * 2 + 1]); }
+  const len = cum[m], N = Math.floor(len), ds = len / N;
+  const x = new Float32Array(N), z = new Float32Array(N), hx = new Float32Array(N), hz = new Float32Array(N), corner = new Uint8Array(N);
+  let k = 0;
+  for (let i = 0; i < N; i++) {
+    const s = i * ds; while (cum[k + 1] < s) k++;
+    const j = (k + 1) % m, t = (s - cum[k]) / Math.max(1e-9, cum[k + 1] - cum[k]);
+    x[i] = pts[k * 2] + (pts[j * 2] - pts[k * 2]) * t; z[i] = pts[k * 2 + 1] + (pts[j * 2 + 1] - pts[k * 2 + 1]) * t; corner[i] = flags[k];
+  }
+  for (let i = 0; i < N; i++) { const j = (i + 1) % N; const dx = x[j] - x[i], dz = z[j] - z[i], l = Math.hypot(dx, dz) || 1; hx[i] = dx / l; hz[i] = dz / l; }
+  return { x, z, hx, hz, corner, n: N, ds, len };
+}
+export interface PathPos { x: number; z: number; hx: number; hz: number; corner: boolean; }
+/** Point at distance s along the loop, shifted `off` metres to the right of travel. */
+export function pathAt(p: Path, s: number, off: number, out: PathPos): PathPos {
+  let u = (s % p.len) / p.ds; if (u < 0) u += p.n;
+  const i = Math.floor(u) % p.n, j = (i + 1) % p.n, t = u - Math.floor(u);
+  let hx = p.hx[i] + (p.hx[j] - p.hx[i]) * t, hz = p.hz[i] + (p.hz[j] - p.hz[i]) * t; const l = Math.hypot(hx, hz) || 1; hx /= l; hz /= l;
+  out.x = p.x[i] + (p.x[j] - p.x[i]) * t - hz * off; out.z = p.z[i] + (p.z[j] - p.z[i]) * t + hx * off;
+  out.hx = hx; out.hz = hz; out.corner = p.corner[i] === 1 || p.corner[(i + 14) % p.n] === 1;
+  return out;
+}
+export function pathNearest(p: Path, x: number, z: number): number {
+  let best = 0, bd = 1e18;
+  for (let i = 0; i < p.n; i++) { const d = (p.x[i] - x) ** 2 + (p.z[i] - z) ** 2; if (d < bd) { bd = d; best = i; } }
+  return best * p.ds;
+}
 
 export interface World {
   solids: Solid[];
@@ -66,6 +124,8 @@ export interface World {
   decor: Decor[]; docks: Dock[]; trains: Train[]; zones: Zone[]; hazards: Rect[]; npcs: NpcSeed[];
   rivets: number[][];
   trial: { sx: number; sz: number; fx: number; fz: number; r: number } | null;
+  env: Env; path: Path | null; cars: CarSeed[]; towS: number; fields: FieldSeed[]; rides: RideSeed[];
+  signs: SignSeed[]; trees: TreeSeed[]; lamps: number[][]; parked: ParkedSeed[]; turbine: number[] | null;
 }
 
 export function topAt(s: Solid, x: number, z: number): number {
@@ -213,7 +273,8 @@ export function buildLab(): World {
     { name: 'Cart lane', x: -41, y: 3, z: 21, yaw: 0, mode: 'cart' },
   ];
   return { solids, rails, props, spawns, minX: -X, maxX: X, minZ: -Z, maxZ: Z, kind: 'lab', baseY: 0,
-    decor: [], docks: [], trains: [], zones: [], hazards: [], npcs: [], rivets: [], trial: null };
+    decor: [], docks: [], trains: [], zones: [], hazards: [], npcs: [], rivets: [], trial: null,
+    env: makeEnv('summer', 'sunny'), path: null, cars: [], towS: 0, fields: [], rides: [], signs: [], trees: [], lamps: [], parked: [], turbine: null };
 }
 
 /** Ledge edges become rails automatically (systems, not assets). */

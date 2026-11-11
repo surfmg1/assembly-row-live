@@ -1,6 +1,6 @@
 # Assembly Row: Live
 
-A browser game set in a playable reconstruction of Assembly Row, Somerville. The default build is a hand-laid, stylized Assembly Row you can skate, run, cart and kayak around. Add `#lab` to the address for the Milestone 1 grey test room.
+A browser game set in a playable reconstruction of Assembly Row, Somerville. The default build is a hand-laid, stylized Assembly Row with four seasons and four kinds of weather. Skate, run, cart and kayak around it; in the snow, grab a bungee behind a friend's pickup and snowboard the loop, or drive a plow; in the warm months, drive a ride-on mower. Add `#lab` to the address for the Milestone 1 grey test room.
 
 Start with `PLAN.md`.
 
@@ -25,7 +25,10 @@ Open `dist/index.html` in a browser.
 | Air trick | E or F | X | Third button |
 | Switch mode (speed is kept) | Q or Tab | Y | Small button |
 | Bail | R | LB | Small button |
-| Jump to a place | 1 to 5 | | Buttons at the top |
+| Jump to a place | 1 to 7 | | Places menu |
+| Grab or drop the bungee, get on or off a mower or plow | Q nearby | Y nearby | Small button nearby |
+| Dig an edge on the bungee (release to slingshot) | Shift | B | Second button |
+| Seasons and weather | Esc | | Seasons button |
 | Launch or leave a kayak | Q at a dock | Y at a dock | Small button at a dock |
 | Look | Drag | Right stick | Drag the view |
 

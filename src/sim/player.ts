@@ -2,14 +2,15 @@
 // Fixed 60 Hz step, no DOM, no randomness. One rule above all: switching mode never
 // touches the velocity vector, so momentum carries between every pair of modes.
 
-import { World, Solid, Hit, Surf, ground, collide, slopeOf, topAt, trainAt, TRAIN_HALF, TRAIN_H } from './world';
+import { World, Solid, Hit, Surf, PathPos, ground, collide, slopeOf, topAt, trainAt, pathAt, TRAIN_HALF, TRAIN_H } from './world';
+import { Car, Tow, ROPE, makeCars, makeTow, stepCars, carContact } from './traffic';
 import { Npc, makeNpcs, stepNpcs } from './npc';
 
 export const G = 22;
 export const DT = 1 / 60;
 const R = 0.3, HEIGHT = 1.7;
 const MODES = ['foot', 'skate', 'cart'] as const;
-export type Mode = typeof MODES[number] | 'kayak';
+export type Mode = typeof MODES[number] | 'kayak' | 'drive';
 
 export interface Input {
   /** desired direction in world space, magnitude 0..1 */
@@ -20,11 +21,14 @@ export const noInput = (): Input => ({ mx: 0, mz: 0, jump: false, crouch: false,
 
 export type EvType = 'jump' | 'land' | 'vault' | 'mantle' | 'wallrun' | 'walljump' | 'slide' | 'grindStart'
   | 'grindEnd' | 'trick' | 'bank' | 'bail' | 'respawn' | 'switch' | 'hopOn' | 'hopOff' | 'bobsled' | 'ram'
-  | 'impact' | 'step' | 'trickStart' | 'splash' | 'train' | 'zap' | 'rivet' | 'finish' | 'trialStart' | 'busted' | 'goose' | 'bump' | 'deny' | 'dock';
+  | 'impact' | 'step' | 'trickStart' | 'splash' | 'train' | 'zap' | 'rivet' | 'finish' | 'trialStart' | 'busted' | 'goose' | 'bump' | 'deny' | 'dock'
+  | 'horn' | 'honk' | 'carHit' | 'closeCall' | 'rope' | 'ropeOff' | 'lap' | 'sling' | 'puff' | 'mow' | 'fieldDone' | 'ride' | 'rideOff' | 'soft' | 'launch';
 export interface Ev { type: EvType; v: number; name?: string; surf?: Surf; }
 
 export interface Prop {
-  kind: 'cone' | 'crate';
+  kind: 'cone' | 'crate' | 'leaves' | 'snowman';
+  /** soft props (leaf piles, snowmen) vanish for a while after being hit */
+  gone: number;
   x: number; y: number; z: number; vx: number; vy: number; vz: number;
   rx: number; ry: number; rz: number; wx: number; wy: number; wz: number;
   rest: boolean; hx: number; hy: number; hz: number;
@@ -50,12 +54,20 @@ export interface Player {
   time: number; firstTrickAt: number; stride: number; pushing: boolean; bails: number;
   props: Prop[];
   npcs: Npc[]; rivets: boolean[]; rivetN: number; trialT: number; trialArmed: boolean; trialBest: number;
+  cars: Car[]; tow: Tow; rides: Ride[]; ride: number; dsp: number; edge: boolean; inv: number;
+  fields: Uint8Array[]; fieldN: number; fieldTotal: number; fieldMile: number;
 }
+
+/** A vehicle the player can climb onto: a ride-on mower in the warm seasons, a plow in the snow. */
+export interface Ride { kind: 'mower' | 'plow'; x: number; z: number; yaw: number; hx: number; hz: number; hyaw: number; }
+export const makeRides = (w: World): Ride[] => w.rides.map(r => ({ kind: r.kind, x: r.x, z: r.z, yaw: r.yaw, hx: r.x, hz: r.z, hyaw: r.yaw }));
+const makeFields = (w: World) => w.fields.map(f => new Uint8Array(f.nx * f.nz));
+const fieldTotal = (w: World) => w.fields.reduce((a, f) => a + f.nx * f.nz, 0);
 
 export function makeProps(w: World): Prop[] {
   return w.props.map(s => ({
     kind: s.kind, x: s.x, y: s.y, z: s.z, vx: 0, vy: 0, vz: 0, rx: 0, ry: 0, rz: 0, wx: 0, wy: 0, wz: 0,
-    rest: true, hx: s.x, hy: s.y, hz: s.z,
+    rest: true, hx: s.x, hy: s.y, hz: s.z, gone: 0,
   }));
 }
 
@@ -75,6 +87,8 @@ export function makePlayer(w: World, spawn = 0): Player {
     time: 0, firstTrickAt: -1, stride: 0, pushing: false, bails: 0,
     props: makeProps(w),
     npcs: makeNpcs(w), rivets: w.rivets.map(() => false), rivetN: 0, trialT: -1, trialArmed: false, trialBest: 0,
+    cars: makeCars(w), tow: makeTow(), rides: makeRides(w), ride: -1, dsp: 0, edge: false, inv: 0,
+    fields: makeFields(w), fieldN: 0, fieldTotal: fieldTotal(w), fieldMile: 0,
   };
 }
 
@@ -86,7 +100,56 @@ export function warp(w: World, p: Player, spawn: number) {
   p.comboPts = 0; p.comboN = 0; p.comboNames = [];
   p.safe = [s.x, s.y, s.z, s.yaw]; p.safeOld = p.safe.slice();
   p.props = makeProps(w); p.trialT = -1; p.trialArmed = false;
+  p.rides = makeRides(w); p.ride = -1; p.dsp = 0; p.edge = false; p.tow = makeTow(); p.inv = 0;
+  if (p.cars.length) { const t = p.cars[0]; t.s = w.towS; t.off = t.offT = 5.0; t.v = 0; }
+  if (s.tow && p.cars.length) { p.tow.active = true; p.tow.rope = true; p.tow.startT = p.time; p.cartRide = p.mode === 'cart'; }
 }
+
+/** The season or weather changed and the world was rebuilt: keep the player, refresh everything else. */
+export function rebind(w: World, p: Player) {
+  p.props = makeProps(w); p.npcs = makeNpcs(w); p.cars = makeCars(w); p.tow = makeTow(); p.rides = makeRides(w);
+  if (p.mode === 'drive') p.mode = 'foot';
+  p.ride = -1; p.dsp = 0; p.edge = false; p.fields = makeFields(w); p.fieldN = 0; p.fieldTotal = fieldTotal(w); p.fieldMile = 0;
+  if (p.rivets.length !== w.rivets.length) { p.rivets = w.rivets.map(() => false); p.rivetN = 0; }
+  if (p.state !== 'bail') { p.state = 'normal'; p.stateT = 0; }
+  p.rail = -1; p.trickT = 0;
+  if (p.mode !== 'kayak') { p.y = Math.max(p.y, ground(w, p.x, p.z, p.y + 3).y) + 0.05; p.grounded = false; }
+  p.safe = [p.x, p.y, p.z, p.yaw]; p.safeOld = p.safe.slice();
+}
+
+/** What the context button would do right now, for prompts. */
+export function context(w: World, p: Player): '' | 'exit' | 'letgo' | 'tow' | 'mower' | 'plow' | 'kayak' | 'dock' {
+  if (p.state === 'bail') return '';
+  if (p.mode === 'drive') return 'exit';
+  if (p.tow.rope) return 'letgo';
+  if (p.mode === 'kayak') { for (const d of w.docks) if (Math.hypot(p.x - d.wx, p.z - d.wz) <= 12) return 'dock'; return ''; }
+  if (nearTruck(p)) return 'tow';
+  const r = nearRide(p); if (r >= 0) return p.rides[r].kind;
+  for (const d of w.docks) if (Math.hypot(p.x - d.lx, p.z - d.lz) <= 8 && Math.abs(p.y - d.ly) <= 1.5) return 'kayak';
+  return '';
+}
+function hitchX(t: Car) { return t.x - t.hx * (t.len / 2 + 0.3); }
+function hitchZ(t: Car) { return t.z - t.hz * (t.len / 2 + 0.3); }
+function nearTruck(p: Player) {
+  if (!p.cars.length || p.tow.active || p.mode === 'kayak' || p.mode === 'drive') return false;
+  const t = p.cars[0]; return Math.hypot(p.x - hitchX(t), p.z - hitchZ(t)) < 8 && p.y < 2;
+}
+function nearRide(p: Player) {
+  for (let i = 0; i < p.rides.length; i++) { const r = p.rides[i]; if (Math.hypot(p.x - r.x, p.z - r.z) < (r.kind === 'plow' ? 5.5 : 3.2)) return i; }
+  return -1;
+}
+function dropRide(p: Player, home: boolean) {
+  if (p.ride < 0) return;
+  const r = p.rides[p.ride];
+  if (home) { r.x = r.hx; r.z = r.hz; r.yaw = r.hyaw; } else { r.x = p.x; r.z = p.z; r.yaw = p.yaw; }
+  p.ride = -1; p.mode = 'foot'; p.dsp = 0;
+}
+const surfOf = (w: World, s: Solid | null): Surf => {
+  const sf: Surf = s ? s.surf : w.baseY < 0 ? 'water' : 'concrete';
+  return w.env.snow && (sf === 'concrete' || sf === 'grass') ? 'snow' : sf;
+};
+const tp: PathPos = { x: 0, z: 0, hx: 0, hz: 0, corner: false };
+const honks: number[] = [];
 
 const hit: Hit = { hit: false, nx: 0, nz: 0, top: 0, s: null };
 const probe: Hit = { hit: false, nx: 0, nz: 0, top: 0, s: null };
@@ -105,6 +168,8 @@ function addTrick(p: Player, ev: Ev[], name: string, pts: number) {
 function bail(p: Player, ev: Ev[]) {
   if (p.state === 'bail') return;
   const sp = Math.hypot(p.vx, p.vz);
+  if (p.mode === 'drive') dropRide(p, p.surf === 'water');
+  p.tow.rope = false; p.edge = false;
   p.state = 'bail'; p.stateT = 0; p.trickT = 0; p.rail = -1; p.bails++;
   p.comboPts = 0; p.comboN = 0; p.comboNames = []; p.flow = 0;
   p.rag.x = p.x; p.rag.y = p.y + 0.9; p.rag.z = p.z;
@@ -134,6 +199,14 @@ function stepBail(w: World, p: Player, dt: number, ev: Ev[]) {
     const s = p.safeOld;
     p.x = s[0]; p.y = s[1] + 0.05; p.z = s[2]; p.yaw = s[3];
     p.vx = p.vy = p.vz = 0; p.state = 'normal'; p.stateT = 0; p.grounded = false; p.cartRide = false; p.airT = 0;
+    p.inv = 2.5;
+    if (p.tow.active && w.path && p.mode !== 'kayak') {
+      // back on the bungee, right behind the truck
+      const t = p.cars[0]; pathAt(w.path, t.s - 9, t.off, tp);
+      p.x = tp.x; p.z = tp.z; p.y = ground(w, p.x, p.z, 3).y + 0.05; p.yaw = t.yaw; p.tow.rope = true; p.cartRide = p.mode === 'cart';
+      if (p.mode === 'foot') p.mode = 'skate';
+      s[0] = p.x; s[1] = p.y; s[2] = p.z; s[3] = p.yaw;
+    }
     p.safe = s.slice();
     ev.push({ type: 'respawn', v: 0 });
   }
@@ -149,7 +222,7 @@ function switchMode(p: Player, ev: Ev[]) {
 }
 
 function leaveRail(p: Player, ev: Ev[], pop: number) {
-  addTrick(p, ev, p.mode === 'skate' ? '50-50 grind' : 'Rail slide', 50 + Math.round(p.grindPts));
+  addTrick(p, ev, p.mode === 'skate' ? (p.surf === 'snow' ? 'Boardslide' : '50-50 grind') : 'Rail slide', 50 + Math.round(p.grindPts));
   p.state = 'normal'; p.stateT = 0; p.rail = -1; p.railCd = 0.3; p.grounded = false; p.airT = 0;
   p.vy = Math.max(p.vy, 0) + pop;
   ev.push({ type: 'grindEnd', v: 0 });
@@ -174,7 +247,7 @@ function stepGrind(w: World, p: Player, inp: Input, dt: number, ev: Ev[]) {
 }
 
 function tryRail(w: World, p: Player, ev: Ev[]) {
-  if (p.grounded || p.mode === 'cart' || p.mode === 'kayak' || p.railCd > 0 || p.vy > 1.5 || p.state !== 'normal') return;
+  if (p.grounded || p.mode === 'cart' || p.mode === 'kayak' || p.mode === 'drive' || p.railCd > 0 || p.vy > 1.5 || p.state !== 'normal') return;
   const rails = w.rails;
   for (let i = 0; i < rails.length; i++) {
     const r = rails[i];
@@ -203,10 +276,20 @@ function hash(i: number, t: number) { const s = Math.sin(i * 12.9898 + t * 78.23
 
 function stepProps(w: World, p: Player, dt: number, ev: Ev[]) {
   const sp = Math.hypot(p.vx, p.vz);
-  const reach = p.mode === 'cart' ? 0.85 : 0.55;
+  const reach = p.mode === 'cart' ? 0.85 : p.mode === 'drive' ? 1.5 : 0.55;
   const ps = p.props;
   for (let i = 0; i < ps.length; i++) {
     const q = ps[i];
+    if (q.kind === 'leaves' || q.kind === 'snowman') {
+      if (q.gone > 0) { q.gone -= dt; continue; }
+      if (p.state === 'bail' || sp < 2) continue;
+      const dx = q.x - p.x, dz = q.z - p.z;
+      if (dx * dx + dz * dz > 1.1 || Math.abs(q.y - p.y) > 1.6) continue;
+      q.gone = 30; p.vx *= 0.96; p.vz *= 0.96;
+      addTrick(p, ev, q.kind === 'leaves' ? 'Leaf pile' : 'Snowman', q.kind === 'leaves' ? 25 : 40);
+      ev.push({ type: 'soft', v: i, name: q.kind });
+      continue;
+    }
     if (q.rest) {
       if (p.state === 'bail' || sp < 1.5) continue;
       const dx = q.x - p.x, dz = q.z - p.z;
@@ -313,7 +396,8 @@ function footControl(p: Player, inp: Input, ix: number, iz: number, mag: number,
   }
 }
 
-function wheelControl(p: Player, inp: Input, ix: number, iz: number, mag: number, dt: number, ev: Ev[], gs: Solid | null) {
+function wheelControl(w: World, p: Player, inp: Input, ix: number, iz: number, mag: number, dt: number, ev: Ev[], gs: Solid | null) {
+  const snowy = w.env.snow, slick = w.env.wet ? 0.85 : 1, towed = p.tow.rope;
   let sp = Math.hypot(p.vx, p.vz);
   const skate = p.mode === 'skate';
   let hx: number, hz: number;
@@ -322,7 +406,7 @@ function wheelControl(p: Player, inp: Input, ix: number, iz: number, mag: number
   if (p.grounded) {
     const riding = !skate && p.cartRide;
     const k = Math.min(1, sp / 14);
-    const turn = skate ? 3.4 - 1.7 * k : riding ? (inp.crouch ? 0.6 : 1.25) : 2.4;
+    const turn = (skate ? (snowy ? 3.0 - 1.2 * k : 3.4 - 1.7 * k) : riding ? (inp.crouch ? 0.6 : towed ? 1.7 : 1.25) : 2.4) * slick;
     let rot = 0;
     if (mag > 0) {
       const ang = Math.atan2(hx * iz - hz * ix, hx * ix + hz * iz);
@@ -331,15 +415,25 @@ function wheelControl(p: Player, inp: Input, ix: number, iz: number, mag: number
       else if (aa < 2.3) rot = Math.max(-turn * dt, Math.min(turn * dt, ang));
       if (aa < 1.75) {
         if (!riding) {
-          const pm = skate ? 10 : 9.5;
-          if (sp < pm) { sp = Math.min(pm, sp + (skate ? 7 : 6.5) * mag * dt); p.pushing = true; }
-        } else if (sp < 2.5) { p.cartRide = false; ev.push({ type: 'hopOff', v: sp }); }
+          const pm = skate ? (snowy ? 5.5 : 10) : 9.5;
+          if (sp < pm) { sp = Math.min(pm, sp + (skate ? (snowy ? 4.5 : 7) : 6.5) * mag * dt); p.pushing = true; }
+        } else if (sp < 2.5 && !towed) { p.cartRide = false; ev.push({ type: 'hopOff', v: sp }); }
       } else if (aa > 2.3) sp = Math.max(0, sp - (riding ? 5 : 12) * dt);
+    }
+    // Hands off the stick on the bungee: the board settles in behind the truck by itself.
+    if (towed && mag === 0 && sp > 2 && p.cars.length) {
+      const t = p.cars[0], ax = hitchX(t) + t.hx * 4 - p.x, az = hitchZ(t) + t.hz * 4 - p.z;
+      const ang = Math.atan2(hx * az - hz * ax, hx * ax + hz * az);
+      rot = Math.max(-1.3 * dt, Math.min(1.3 * dt, ang));
     }
     // The cart has one bad wheel. It pulls harder the faster you go.
     if (riding) rot += (Math.sin(p.time * 11) * 0.22 * Math.min(1, sp / 10) + Math.sin(p.time * 3.7) * 0.1) * dt;
     if (rot !== 0) { const c = Math.cos(rot), s = Math.sin(rot); const nx = hx * c - hz * s; hz = hx * s + hz * c; hx = nx; }
-    const fr = skate ? (p.state === 'manual' ? 0.3 : 0.7) : riding ? (inp.crouch ? 0.2 : 0.5) : (mag > 0 ? 0.8 : 5);
+    // On the bungee, crouching digs an edge in: a hard brake that stretches the cord for a slingshot.
+    const dig = towed && skate && inp.crouch && sp > 2;
+    if (p.edge && !dig && p.tow.stretch > 2.2 && p.tow.slingCd <= 0) { p.tow.slingCd = 2.5; addTrick(p, ev, 'Slingshot', 60); ev.push({ type: 'sling', v: p.tow.stretch }); }
+    p.edge = dig;
+    const fr = dig ? 22 : skate ? (p.state === 'manual' ? 0.3 : snowy ? 0.22 : 0.7 * slick) : riding ? (inp.crouch ? 0.2 : 0.5 * slick) : (mag > 0 ? 0.8 : 5);
     sp = Math.max(0, sp - (fr + 0.006 * sp * sp) * dt);
     p.vx = hx * sp; p.vz = hz * sp;
     const [gx, gz] = slopeOf(gs);
@@ -353,20 +447,23 @@ function wheelControl(p: Player, inp: Input, ix: number, iz: number, mag: number
     if (skate) {
       if (p.state === 'manual') {
         p.stateT += dt; p.flowIdle = 0;
-        if (!inp.crouch || sp < 2) { addTrick(p, ev, 'Manual', Math.round(p.stateT * 60)); p.state = 'normal'; p.stateT = 0; }
+        if (!inp.crouch || sp < 2 || towed) { addTrick(p, ev, snowy ? 'Butter' : 'Manual', Math.round(p.stateT * 60)); p.state = 'normal'; p.stateT = 0; }
         else if (p.stateT > 3) { bail(p, ev); return; }
-      } else if (inp.crouch && sp > 3 && p.state === 'normal') { p.state = 'manual'; p.stateT = 0; }
+      } else if (inp.crouch && sp > 3 && p.state === 'normal' && !towed) { p.state = 'manual'; p.stateT = 0; }
     }
-  } else if (mag > 0 && sp > 0.5) {
-    // A little air steer so lines can be corrected, never enough to add speed.
-    const ang = Math.atan2(hx * iz - hz * ix, hx * ix + hz * iz);
-    rotateVel(p, Math.max(-0.9 * dt, Math.min(0.9 * dt, ang)));
+  } else {
+    p.edge = false;
+    if (mag > 0 && sp > 0.5) {
+      // A little air steer so lines can be corrected, never enough to add speed.
+      const ang = Math.atan2(hx * iz - hz * ix, hx * ix + hz * iz);
+      rotateVel(p, Math.max(-0.9 * dt, Math.min(0.9 * dt, ang)));
+    }
   }
   if (p.jumpBuf > 0 && (p.grounded || p.coyote > 0)) {
     p.jumpBuf = 0;
     if (skate) {
       if (p.state === 'manual') { addTrick(p, ev, 'Manual', Math.round(p.stateT * 60)); p.state = 'normal'; p.stateT = 0; }
-      p.vy = Math.max(p.vy, 0) + 6.0; p.grounded = false; p.coyote = 0; p.airT = 0; ev.push({ type: 'jump', v: 1 });
+      p.vy = Math.max(p.vy, 0) + 7.0; p.grounded = false; p.coyote = 0; p.airT = 0; ev.push({ type: 'jump', v: 1 });
     } else if (!p.cartRide) {
       p.cartRide = true; p.vy = 2.2; p.grounded = false; p.coyote = 0; p.airT = 0;
       if (sp >= 8) { const k = (sp + 1.5) / sp; p.vx *= k; p.vz *= k; addTrick(p, ev, 'Bobsled start', 80); ev.push({ type: 'bobsled', v: sp }); }
@@ -383,12 +480,35 @@ export function step(w: World, p: Player, inp: Input, dt: number, ev: Ev[]) {
   p.jumpBuf = jumpPressed ? 0.13 : Math.max(0, p.jumpBuf - dt);
   p.wallCd = Math.max(0, p.wallCd - dt); p.railCd = Math.max(0, p.railCd - dt);
   p.slideCd = Math.max(0, p.slideCd - dt); p.vaultT = Math.max(0, p.vaultT - dt);
-  p.coyote = Math.max(0, p.coyote - dt);
+  p.coyote = Math.max(0, p.coyote - dt); p.inv = Math.max(0, p.inv - dt); p.tow.slingCd = Math.max(0, p.tow.slingCd - dt);
+  if (w.path) {
+    honks.length = 0;
+    stepCars(w, p.cars, p.tow, p, p.state === 'bail' || (p.mode !== 'drive' && Math.hypot(p.vx, p.vz) < 4), dt, honks);
+    for (let i = 0; i < honks.length; i++) ev.push({ type: 'honk', v: honks[i] });
+  }
 
   if (p.state === 'bail') { stepBail(w, p, dt, ev); stepProps(w, p, dt, ev); if (w.kind === 'city') stepNpcs(w, p, p.npcs, dt, bumps); return; }
   if (bailPressed) { bail(p, ev); return; }
   if (switchPressed && p.state !== 'mantle') {
-    if (w.docks.length && dockSwitch(w, p, ev)) { /* launched or landed a kayak */ }
+    let ri = -1;
+    if (p.mode === 'drive') {
+      const side = p.rides[p.ride].kind === 'plow' ? 2.6 : 1.3, yaw = p.yaw;
+      dropRide(p, false); p.x += -Math.sin(yaw) * side; p.z += Math.cos(yaw) * side; p.vx = p.vz = 0;
+      collide(w, p, R, 0.35, HEIGHT, hit); ev.push({ type: 'rideOff', v: 0 });
+    } else if (p.tow.rope) { p.tow.rope = false; p.tow.active = false; p.edge = false; ev.push({ type: 'ropeOff', v: 0 }); }
+    else if (nearTruck(p)) {
+      if (p.state === 'grind') leaveRail(p, ev, 1.0);
+      if (p.mode === 'foot') p.mode = 'skate';
+      p.cartRide = p.mode === 'cart'; p.state = 'normal'; p.stateT = 0;
+      p.tow.active = true; p.tow.rope = true; p.tow.startT = p.time; p.tow.laps = 0; p.tow.dist = 0;
+      ev.push({ type: 'rope', v: 1 });
+    } else if (p.mode !== 'kayak' && (ri = nearRide(p)) >= 0) {
+      const r = p.rides[ri];
+      p.ride = ri; p.mode = 'drive'; p.x = r.x; p.z = r.z; p.yaw = r.yaw; p.dsp = 0; p.vx = p.vy = p.vz = 0; p.cartRide = false;
+      p.y = ground(w, p.x, p.z, p.y + 1.5).y; p.grounded = true; p.state = 'normal'; p.stateT = 0; p.trickT = 0; p.rail = -1;
+      ev.push({ type: 'ride', v: ri, name: r.kind });
+    }
+    else if (w.docks.length && dockSwitch(w, p, ev)) { /* launched or landed a kayak */ }
     else if (p.mode === 'kayak') ev.push({ type: 'deny', v: 0 });
     else {
       if (p.state === 'grind') leaveRail(p, ev, 1.0);
@@ -413,20 +533,37 @@ export function step(w: World, p: Player, inp: Input, dt: number, ev: Ev[]) {
   const im = Math.hypot(inp.mx, inp.mz);
   const mag = im > 0.15 ? Math.min(1, im) : 0;
   const ix = mag > 0 ? inp.mx / im : 0, iz = mag > 0 ? inp.mz / im : 0;
-  const stepH = p.mode === 'foot' ? 0.35 : p.mode === 'skate' ? 0.2 : p.mode === 'kayak' ? 0.05 : 0.12;
+  const stepH = p.mode === 'foot' ? 0.35 : p.mode === 'skate' ? 0.2 : p.mode === 'kayak' ? 0.05 : p.mode === 'drive' ? 0.3 : 0.12;
+  const rad = p.mode === 'drive' ? (p.rides[p.ride].kind === 'plow' ? 1.5 : 0.75) : R;
   const gs = p.grounded ? ground(w, p.x, p.z, p.y + 0.05).s : null;
 
   if (p.mode === 'foot') footControl(p, inp, ix, iz, mag, crouchPressed, dt, ev, gs);
   else if (p.mode === 'kayak') kayakControl(p, ix, iz, mag, dt);
-  else wheelControl(p, inp, ix, iz, mag, dt, ev, gs);
+  else if (p.mode === 'drive') driveControl(p, inp, ix, iz, mag, dt, ev);
+  else wheelControl(w, p, inp, ix, iz, mag, dt, ev, gs);
   if ((p.state as State) === 'bail') return;
 
+  // The bungee: a spring that only pulls, anchored to the truck's hitch.
+  if (p.tow.rope) {
+    const t = p.cars[0];
+    let dx = hitchX(t) - p.x, dz = hitchZ(t) - p.z; const d = Math.hypot(dx, dz) || 1; dx /= d; dz /= d;
+    const st = d - ROPE; p.tow.stretch = Math.max(0, st);
+    if (st > 0) {
+      const sep = -((p.vx - t.hx * t.v) * dx + (p.vz - t.hz * t.v) * dz);
+      const a = Math.min(st * 5.5, 44) + (sep > 0 ? sep * 1.6 : 0);
+      p.vx += dx * a * dt; p.vz += dz * a * dt;
+    }
+    p.tow.dist += t.v * dt;
+    if (w.path && p.tow.dist >= (p.tow.laps + 1) * w.path.len) { p.tow.laps++; p.score += 300 * p.tow.laps; ev.push({ type: 'lap', v: p.tow.laps }); }
+    if (st > 17) { p.tow.rope = false; p.edge = false; ev.push({ type: 'ropeOff', v: 1 }); }
+  } else p.tow.stretch = 0;
+
   // Air tricks: one button, a mode-specific trick. Landing before it finishes is a bail.
-  if (!p.grounded && trickPressed && p.trickT <= 0 && p.state === 'normal' && p.mode !== 'kayak' && (p.mode !== 'cart' || p.cartRide)) {
+  if (!p.grounded && trickPressed && p.trickT <= 0 && p.state === 'normal' && p.mode !== 'kayak' && p.mode !== 'drive' && (p.mode !== 'cart' || p.cartRide)) {
     if (p.mode === 'foot') { p.trickName = 'Front flip'; p.trickPts = 120; p.trickDur = 0.55; }
     else if (p.mode === 'cart') { p.trickName = 'Cart 360'; p.trickPts = 150; p.trickDur = 0.55; }
-    else if (inp.crouch) { p.trickName = 'Shove-it'; p.trickPts = 150; p.trickDur = 0.5; }
-    else { p.trickName = 'Kickflip'; p.trickPts = 100; p.trickDur = 0.42; }
+    else if (inp.crouch) { p.trickName = w.env.snow ? 'Backside 360' : 'Shove-it'; p.trickPts = 150; p.trickDur = 0.46; }
+    else { p.trickName = w.env.snow ? 'Method grab' : 'Kickflip'; p.trickPts = 100; p.trickDur = 0.36; }
     p.trickT = p.trickDur; ev.push({ type: 'trickStart', v: 0, name: p.trickName });
   }
   if (p.trickT > 0) { p.trickT -= dt; if (p.trickT <= 0) { p.trickT = 0; addTrick(p, ev, p.trickName, p.trickPts); } }
@@ -452,9 +589,9 @@ export function step(w: World, p: Player, inp: Input, dt: number, ev: Ev[]) {
     // Judge walls from the height this sub-step started at, so a fast fall lands on a surface
     // instead of being treated as inside it.
     const yNow = p.y; if (!p.grounded && prevY > p.y) p.y = prevY;
-    collide(w, p, R, p.grounded ? stepH : Math.min(stepH, 0.12), HEIGHT, hit);
+    collide(w, p, rad, p.grounded ? stepH : Math.min(stepH, 0.12), HEIGHT, hit);
     p.y = yNow;
-    if (hit.hit && respond(w, p, inp, ev)) return;
+    if (hit.hit && respond(w, p, inp, ev, rad)) return;
     resolveGround(w, p, inp, prevY, h, stepH, ev);
     if ((p.state as State) === 'bail' || (p.state as State) === 'mantle') return;
   }
@@ -482,6 +619,55 @@ function kayakControl(p: Player, ix: number, iz: number, mag: number, dt: number
   }
   sp = Math.max(0, sp - (0.3 + 0.06 * sp * sp) * dt);
   p.vx = hx * sp; p.vz = hz * sp;
+}
+
+/** Ride-on mower or snowplow: explicit heading and signed speed, steered toward the stick. */
+function driveControl(p: Player, inp: Input, ix: number, iz: number, mag: number, dt: number, ev: Ev[]) {
+  const plow = p.rides[p.ride].kind === 'plow';
+  const vmax = plow ? 11 : 7.5, acc = plow ? 4.5 : 6.5, turn = plow ? 1.3 : 2.7;
+  const hx = Math.cos(p.yaw), hz = Math.sin(p.yaw);
+  p.pushing = false;
+  if (p.grounded) {
+    if (mag > 0) {
+      const ang = Math.atan2(hx * iz - hz * ix, hx * ix + hz * iz), aa = Math.abs(ang);
+      // reversing latches, so the machine never chatters between forward and back
+      if (p.dsp < -0.05 ? aa > 1.7 : (aa > 2.5 && p.dsp < 1.5)) {
+        p.dsp = Math.max(-3.5, p.dsp - acc * dt);
+        const back = ang - Math.sign(ang) * Math.PI;
+        p.yaw += Math.max(-turn * dt, Math.min(turn * dt, back)) * Math.min(1, Math.abs(p.dsp) / 2);
+      } else {
+        const grip = plow ? Math.min(1, Math.abs(p.dsp) / 3) : 1;
+        p.yaw += Math.max(-turn * dt, Math.min(turn * dt, ang)) * grip;
+        p.dsp = Math.min(vmax, p.dsp + acc * mag * dt); p.pushing = true;
+      }
+    } else p.dsp -= Math.sign(p.dsp) * Math.min(Math.abs(p.dsp), 4 * dt);
+    if (inp.crouch) p.dsp -= Math.sign(p.dsp) * Math.min(Math.abs(p.dsp), 14 * dt);
+    p.vx = Math.cos(p.yaw) * p.dsp; p.vz = Math.sin(p.yaw) * p.dsp;
+  }
+  if (p.jumpBuf > 0) { p.jumpBuf = 0; ev.push({ type: 'horn', v: plow ? 1 : 0 }); }
+}
+
+/** Mark the cells under a mower deck or plow blade. */
+function workField(w: World, p: Player, ev: Ev[]) {
+  const plow = p.rides[p.ride].kind === 'plow', want = plow ? 'snow' : 'lawn';
+  const bx = p.x + Math.cos(p.yaw) * (plow ? 3.4 : 0.6), bz = p.z + Math.sin(p.yaw) * (plow ? 3.4 : 0.6), r = plow ? 2.3 : 1.45;
+  let fresh = 0;
+  for (let k = 0; k < w.fields.length; k++) {
+    const f = w.fields[k]; if (f.kind !== want) continue;
+    const i0 = Math.max(0, Math.floor((bx - r - f.x0) / f.cell)), i1 = Math.min(f.nx - 1, Math.floor((bx + r - f.x0) / f.cell));
+    const j0 = Math.max(0, Math.floor((bz - r - f.z0) / f.cell)), j1 = Math.min(f.nz - 1, Math.floor((bz + r - f.z0) / f.cell));
+    for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) {
+      const cx = f.x0 + (i + 0.5) * f.cell - bx, cz = f.z0 + (j + 0.5) * f.cell - bz;
+      if (cx * cx + cz * cz > r * r || p.fields[k][j * f.nx + i]) continue;
+      // stripe direction: remember which way the machine was heading
+      p.fields[k][j * f.nx + i] = Math.abs(Math.cos(p.yaw)) > 0.7 ? (Math.cos(p.yaw) > 0 ? 1 : 2) : (Math.sin(p.yaw) > 0 ? 3 : 4);
+      fresh++;
+    }
+  }
+  if (!fresh) return;
+  p.fieldN += fresh; p.score += fresh * 2; ev.push({ type: 'mow', v: fresh });
+  const mile = Math.floor(p.fieldN / p.fieldTotal * 4);
+  if (mile > p.fieldMile) { p.fieldMile = mile; p.score += 500 * mile; ev.push({ type: 'fieldDone', v: mile * 25, name: plow ? 'plow' : 'mow' }); }
 }
 
 /** Launch a kayak from a dock, or step back onto one. */
@@ -513,6 +699,31 @@ function cityStep(w: World, p: Player, dt: number, ev: Ev[]): boolean {
   if (p.grounded && p.y < 0.4) for (const h of w.hazards) {
     if (p.x > h.x0 && p.x < h.x1 && p.z > h.z0 && p.z < h.z1) { p.vy = 7; ev.push({ type: 'zap', v: 0 }); bail(p, ev); return true; }
   }
+  // Traffic: get hit, squeeze past for points, or thump harmlessly into the tow truck.
+  const crad = p.mode === 'drive' ? (p.rides[p.ride].kind === 'plow' ? 1.5 : 0.75) : R;
+  for (let i = 0; i < p.cars.length; i++) {
+    const c = p.cars[i], k = carContact(c, p, crad);
+    if (k.hit) {
+      if (p.inv > 0) continue;
+      if (i === 0 || k.rel < 4.5 || p.mode === 'drive') {
+        p.x += k.nx * k.pen; p.z += k.nz * k.pen;
+        const vn = (p.vx - c.hx * c.v) * k.nx + (p.vz - c.hz * c.v) * k.nz;
+        if (vn < 0) { p.vx -= vn * k.nx; p.vz -= vn * k.nz; if (p.mode === 'drive') p.dsp *= 0.5; if (vn < -2) ev.push({ type: 'impact', v: -vn }); }
+      } else {
+        p.vx = c.hx * c.v + k.nx * 4; p.vz = c.hz * c.v + k.nz * 4; p.vy = 3;
+        ev.push({ type: 'carHit', v: k.rel, name: c.kind }); bail(p, ev); return true;
+      }
+    } else if (k.near && k.rel > 7 && c.ccd <= 0 && i !== 0 && p.mode !== 'drive' && p.mode !== 'kayak') {
+      c.ccd = 5; addTrick(p, ev, c.kind === 'plow' ? 'Plow dodge' : 'Close call', c.kind === 'plow' ? 120 : 75); ev.push({ type: 'closeCall', v: k.rel });
+    }
+  }
+  if (p.tow.active && !p.tow.rope && p.cars.length) {
+    const t = p.cars[0], d = Math.hypot(p.x - hitchX(t), p.z - hitchZ(t));
+    if (d < 9 && (p.mode === 'skate' || p.mode === 'cart')) { p.tow.rope = true; p.cartRide = p.mode === 'cart'; ev.push({ type: 'rope', v: 2 }); }
+    else if (d > 90) p.tow.active = false;
+  }
+  if (p.mode === 'drive' && p.grounded) workField(w, p, ev);
+
   for (let i = 0; i < w.rivets.length; i++) {
     if (p.rivets[i]) continue;
     const r = w.rivets[i];
@@ -574,7 +785,7 @@ function tryWallrun(w: World, p: Player, ev: Ev[]) {
 }
 
 /** React to a wall contact. Returns true if the step should end (bail). */
-function respond(w: World, p: Player, inp: Input, ev: Ev[]): boolean {
+function respond(w: World, p: Player, inp: Input, ev: Ev[], rad = R): boolean {
   const nx = hit.nx, nz = hit.nz;
   const vn = p.vx * nx + p.vz * nz;
   if (p.state === 'wallrun' && nx * p.wallNx + nz * p.wallNz > 0.7) p.wallTouch = true;
@@ -599,6 +810,17 @@ function respond(w: World, p: Player, inp: Input, ev: Ev[]): boolean {
     if (into > 4) ev.push({ type: 'impact', v: into });
     return false;
   }
+  // Snow is soft: anything on wheels or a board rides up onto a drift instead of stopping dead.
+  if (hit.s && hit.s.surf === 'snow' && rel <= 1.9 && p.mode !== 'kayak') {
+    p.x -= nx * (rad + 0.05); p.z -= nz * (rad + 0.05); p.y = hit.top + 0.02; p.vy = 0; p.grounded = true;
+    p.vx *= 0.88; p.vz *= 0.88; ev.push({ type: 'puff', v: into });
+    return false;
+  }
+  if (p.mode === 'drive') {
+    p.vx -= vn * nx; p.vz -= vn * nz; if (into > 1) p.dsp *= 0.55;
+    if (into > 3) ev.push({ type: 'impact', v: into });
+    return false;
+  }
   if (p.mode !== 'kayak' && into > (p.mode === 'skate' ? 7 : 6.5)) { ev.push({ type: 'impact', v: into }); bail(p, ev); return true; }
   p.vx -= vn * nx; p.vz -= vn * nz;
   p.vx *= 0.92; p.vz *= 0.92;
@@ -611,8 +833,15 @@ function resolveGround(w: World, p: Player, inp: Input, prevY: number, h: number
     const g = ground(w, p.x, p.z, p.y + stepH);
     if (g.y >= p.y - 0.4) {
       const [gx, gz] = slopeOf(g.s);
-      p.lastRate = gx * p.vx + gz * p.vz;
-      p.y = g.y; p.vy = 0; p.surf = g.s ? g.s.surf : w.baseY < 0 ? 'water' : 'concrete';
+      const rate = gx * p.vx + gz * p.vz;
+      // Cresting a bank at speed: leave the ground instead of hugging the far side.
+      if (p.lastRate > 3.2 && rate < p.lastRate - 3 && (p.mode === 'skate' || p.mode === 'cart') && p.state !== 'manual') {
+        p.y = Math.max(p.y, g.y); p.grounded = false; p.vy = Math.min(p.lastRate * 1.15, 12); p.coyote = 0; p.airT = 0; p.lastRate = 0;
+        ev.push({ type: 'launch', v: p.vy });
+        return;
+      }
+      p.lastRate = rate;
+      p.y = g.y; p.vy = 0; p.surf = surfOf(w, g.s);
       if (p.surf === 'water' && p.mode !== 'kayak') { ev.push({ type: 'splash', v: 0 }); bail(p, ev); return; }
     } else {
       p.grounded = false; p.vy = Math.max(0, Math.min(p.lastRate, 12)); p.coyote = 0.12; p.airT = 0; p.lastRate = 0;
@@ -625,23 +854,26 @@ function resolveGround(w: World, p: Player, inp: Input, prevY: number, h: number
   const g = ground(w, p.x, p.z, Math.max(prevY, p.y) + 0.12);
   if (p.vy <= 0 && p.y <= g.y) {
     const impact = -p.vy; lastImpact = impact;
-    p.y = g.y; p.vy = 0; p.grounded = true; p.surf = g.s ? g.s.surf : w.baseY < 0 ? 'water' : 'concrete'; p.lastRate = 0; p.wallUsed = false;
+    p.y = g.y; p.vy = 0; p.grounded = true; p.surf = surfOf(w, g.s); p.lastRate = 0; p.wallUsed = false;
     if (p.surf === 'water' && p.mode !== 'kayak') { ev.push({ type: 'splash', v: -impactOf(p) }); bail(p, ev); return; }
     if (p.state === 'wallrun') { p.state = 'normal'; p.stateT = 0; }
     ev.push({ type: 'land', v: impact, surf: p.surf });
-    if (p.trickT > 0) { bail(p, ev); return; }
+    // a trick that is nearly round counts, a little sketchy
+    if (p.trickT > 0.1) { bail(p, ev); return; }
+    if (p.trickT > 0) { p.trickT = 0; addTrick(p, ev, p.trickName, Math.round(p.trickPts * 0.7)); }
     if (p.mode === 'foot') {
       if (inp.crouch && impact > 8) addTrick(p, ev, 'Roll', 40);
       else if (impact > 17) { bail(p, ev); return; }
       else if (impact > 11) { p.vx *= 0.6; p.vz *= 0.6; }
-    } else if (impact > 19) { bail(p, ev); return; }
+    } else if (impact > 19 && p.surf !== 'snow') { bail(p, ev); return; }
+    else if (p.mode === 'drive') p.dsp *= 0.7;
   }
 }
 
 /** Bookkeeping that runs at the end of every live step. */
 function tail(p: Player, dt: number, ev: Ev[]) {
   const sp = Math.hypot(p.vx, p.vz);
-  if (sp > 0.8 && p.state !== 'grind') p.yaw = Math.atan2(p.vz, p.vx);
+  if (sp > 0.8 && p.state !== 'grind' && p.mode !== 'drive') p.yaw = Math.atan2(p.vz, p.vx);
   p.flowIdle += dt;
   if (p.flowIdle > 1.5) p.flow = Math.max(0, p.flow - 0.1 * dt);
   if (p.grounded && p.mode === 'foot' && p.state === 'normal') {
@@ -657,7 +889,7 @@ function tail(p: Player, dt: number, ev: Ev[]) {
       p.comboPts = 0; p.comboN = 0; p.comboNames = [];
     }
   } else p.comboLand = 0;
-  if (p.grounded && p.state === 'normal' && sp < 16 && (p.surf !== 'water' || p.mode === 'kayak')) {
+  if (p.grounded && p.state === 'normal' && sp < 16 && !p.tow.rope && p.mode !== 'drive' && (p.surf !== 'water' || p.mode === 'kayak')) {
     p.safeT += dt;
     if (p.safeT > 0.5) { p.safeT = 0; p.safeOld = p.safe; p.safe = [p.x, p.y, p.z, p.yaw]; }
   }

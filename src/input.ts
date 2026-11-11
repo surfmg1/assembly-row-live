@@ -7,7 +7,10 @@ export class Controls {
   warp = -1;
   onGesture: () => void = () => {};
   onMute: () => void = () => {};
+  onMenu: () => void = () => {};
   private keys = new Set<string>();
+  /** presses since the last poll, so a tap shorter than one frame still registers */
+  private tapped = new Set<string>();
   private btn: Record<string, boolean> = {};
   private stick = { id: -1, ox: 0, oy: 0, x: 0, y: 0 };
   private drag = { id: -1, x: 0, y: 0 };
@@ -18,15 +21,16 @@ export class Controls {
       if (!e.repeat) {
         const d = /^Digit([1-9])$/.exec(e.code); if (d) this.warp = Number(d[1]) - 1;
         if (e.code === 'KeyM') this.onMute();
+        if (e.code === 'Escape') this.onMenu();
       }
-      this.keys.add(e.code); this.onGesture();
+      this.keys.add(e.code); if (!e.repeat) this.tapped.add(e.code); this.onGesture();
     });
     addEventListener('keyup', e => this.keys.delete(e.code));
     addEventListener('blur', () => this.keys.clear());
 
     for (const el of Array.from(stage.querySelectorAll<HTMLElement>('[data-btn]'))) {
       const name = el.dataset.btn!;
-      const set = (v: boolean) => { this.btn[name] = v; el.classList.toggle('down', v); };
+      const set = (v: boolean) => { this.btn[name] = v; if (v) this.tapped.add('btn:' + name); el.classList.toggle('down', v); };
       el.addEventListener('pointerdown', e => { e.preventDefault(); el.setPointerCapture(e.pointerId); set(true); this.onGesture(); });
       for (const t of ['pointerup', 'pointercancel', 'lostpointercapture']) el.addEventListener(t, () => set(false));
       el.addEventListener('contextmenu', e => e.preventDefault());
@@ -62,11 +66,12 @@ export class Controls {
   private setTouch(e: PointerEvent) { if (e.pointerType === 'touch' && !this.touch) { this.touch = true; document.documentElement.classList.add('touch'); } }
 
   poll() {
-    const k = this.keys, b = this.btn;
+    const k = this.keys, b = this.btn, tp = this.tapped;
     let x = (k.has('KeyD') || k.has('ArrowRight') ? 1 : 0) - (k.has('KeyA') || k.has('ArrowLeft') ? 1 : 0);
     let y = (k.has('KeyW') || k.has('ArrowUp') ? 1 : 0) - (k.has('KeyS') || k.has('ArrowDown') ? 1 : 0);
-    let jump = k.has('Space') || !!b.jump, crouch = k.has('ShiftLeft') || k.has('ShiftRight') || k.has('KeyC') || !!b.crouch;
-    let trick = k.has('KeyE') || k.has('KeyF') || !!b.trick, sw = k.has('KeyQ') || k.has('Tab') || !!b.switch, bail = k.has('KeyR') || !!b.bail;
+    let jump = k.has('Space') || !!b.jump || tp.has('Space') || tp.has('btn:jump'), crouch = k.has('ShiftLeft') || k.has('ShiftRight') || k.has('KeyC') || !!b.crouch;
+    let trick = k.has('KeyE') || k.has('KeyF') || !!b.trick || tp.has('KeyE') || tp.has('btn:trick'), sw = k.has('KeyQ') || k.has('Tab') || !!b.switch || tp.has('KeyQ') || tp.has('Tab') || tp.has('btn:switch'), bail = k.has('KeyR') || !!b.bail || tp.has('KeyR') || tp.has('btn:bail');
+    tp.clear();
     if (this.stick.id >= 0) { x = this.stick.x; y = this.stick.y; }
     const pads = navigator.getGamepads ? navigator.getGamepads() : [];
     for (const g of pads) {

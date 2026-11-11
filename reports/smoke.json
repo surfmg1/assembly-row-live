@@ -4,8 +4,9 @@
   "state": {
     "fpsMed": 10,
     "fpsLow": 10,
-    "simUs": 104.54697988920141,
-    "drawCalls": 3,
-    "boxes": 863
+    "simUs": 0,
+    "drawCalls": 9,
+    "boxes": 2753,
+    "staticBoxes": 2045
   }
 }

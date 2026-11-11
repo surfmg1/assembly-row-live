@@ -1,12 +1,13 @@
 // Synthesised sound, no samples. One noise source feeds surface-tuned filters; one-shots are tiny envelopes.
 import { Ev, Player } from './sim/player';
 
-const BAND: Record<string, number> = { concrete: 950, steel: 2600, wood: 520, water: 380, grass: 600 };
+const BAND: Record<string, number> = { concrete: 950, steel: 2600, wood: 520, water: 380, grass: 600, snow: 1700 };
 
 export class Sound {
   private ctx: AudioContext | null = null;
   private master!: GainNode; private roll!: GainNode; private rollF!: BiquadFilterNode;
   private wind!: GainNode; private grind!: GainNode; private rattle!: GainNode;
+  private eng!: OscillatorNode; private engG!: GainNode; private rain!: GainNode; private gust!: GainNode;
   muted = false;
 
   start() {
@@ -25,6 +26,11 @@ export class Sound {
     [, this.wind] = chain('lowpass', 420, 0.3);
     [, this.grind] = chain('bandpass', 3800, 6);
     [, this.rattle] = chain('highpass', 5200, 0.7);
+    [, this.rain] = chain('highpass', 2600, 0.4);
+    [, this.gust] = chain('lowpass', 260, 0.6);
+    this.eng = c.createOscillator(); this.eng.type = 'sawtooth'; this.eng.frequency.value = 60;
+    const lp = c.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 420;
+    this.engG = c.createGain(); this.engG.gain.value = 0; this.eng.connect(lp); lp.connect(this.engG); this.engG.connect(this.master); this.eng.start();
   }
   setMuted(m: boolean) { this.muted = m; if (this.ctx) this.master.gain.value = m ? 0 : 0.7; }
 
@@ -46,13 +52,25 @@ export class Sound {
   /** Two-tone door chime for a train pulling in. */
   chime() { this.tone('sine', 784, 784, 0.35, 0.12); this.tone('sine', 587, 587, 0.5, 0.12, 0.32); }
 
+  /** One engine voice: whatever is nearest and loudest. */
+  engine(freq: number, gain: number, type: OscillatorType) {
+    const c = this.ctx; if (!c) return;
+    if (this.eng.type !== type) this.eng.type = type;
+    this.eng.frequency.setTargetAtTime(freq, c.currentTime, 0.08); this.engG.gain.setTargetAtTime(gain, c.currentTime, 0.12);
+  }
+  ambience(rain: number, wind: number) {
+    const c = this.ctx; if (!c) return;
+    this.rain.gain.setTargetAtTime(rain * 0.11, c.currentTime, 0.4);
+    this.gust.gain.setTargetAtTime(wind * (0.22 + 0.12 * Math.sin(c.currentTime * 0.7)), c.currentTime, 0.4);
+  }
+
   frame(p: Player) {
     const c = this.ctx; if (!c) return;
     const t = c.currentTime, sp = Math.hypot(p.vx, p.vz), k = Math.min(1, sp / 16);
-    const wheels = p.mode !== 'foot' && p.grounded && p.state !== 'bail';
+    const wheels = p.mode !== 'foot' && p.mode !== 'kayak' && p.mode !== 'drive' && p.grounded && p.state !== 'bail';
     const sliding = p.mode === 'foot' && p.state === 'slide';
     this.rollF.frequency.setTargetAtTime((BAND[p.surf] || 950) * (0.7 + k * 0.8), t, 0.05);
-    this.roll.gain.setTargetAtTime(wheels ? 0.05 + k * 0.32 : sliding ? 0.25 : 0, t, 0.04);
+    this.roll.gain.setTargetAtTime(wheels ? (p.surf === 'snow' ? 0.03 + k * 0.2 + (p.edge ? 0.3 : 0) : 0.05 + k * 0.32) : sliding ? 0.25 : 0, t, 0.04);
     this.rattle.gain.setTargetAtTime(wheels && p.mode === 'cart' ? k * 0.16 * (0.6 + 0.4 * Math.sin(p.time * 31)) : 0, t, 0.02);
     this.wind.gain.setTargetAtTime(p.state === 'bail' ? 0 : k * k * 0.5, t, 0.1);
     this.grind.gain.setTargetAtTime(p.state === 'grind' ? 0.22 : 0, t, 0.02);
@@ -86,6 +104,19 @@ export class Sound {
         case 'busted': this.tone('square', 1500, 1900, 0.12, 0.08); this.tone('square', 1500, 1900, 0.12, 0.08, 0.16); break;
         case 'bump': this.tone('triangle', 330, 260, 0.12, 0.08); break;
         case 'dock': this.burst(450, 0.6, 0.3, 0.4); break;
+        case 'horn': if (e.v) { this.tone('sawtooth', 185, 185, 0.5, 0.14); this.tone('sawtooth', 233, 233, 0.5, 0.14); } else { this.tone('square', 392, 392, 0.22, 0.07); this.tone('square', 494, 494, 0.22, 0.07); } break;
+        case 'honk': this.tone('square', 440, 440, 0.3, 0.06); this.tone('square', 554, 554, 0.3, 0.06); break;
+        case 'carHit': this.tone('sine', 120, 40, 0.3, 0.5); this.burst(800, 0.6, 0.3, 0.5); break;
+        case 'closeCall': this.burst(1800, 0.8, 0.35, 0.3); break;
+        case 'rope': this.tone('triangle', 160, 300, 0.25, 0.16); break;
+        case 'ropeOff': this.tone('triangle', 300, 150, 0.2, 0.12); break;
+        case 'lap': [659, 784, 988].forEach((f, i) => this.tone('triangle', f, f, 0.2, 0.13, i * 0.1)); break;
+        case 'sling': this.tone('sawtooth', 180, 720, 0.35, 0.07); this.burst(1500, 0.7, 0.3, 0.25); break;
+        case 'puff': this.burst(900, 0.5, 0.25, 0.4); break;
+        case 'launch': this.burst(1200, 0.6, 0.3, 0.16); break;
+        case 'fieldDone': [523, 659, 784].forEach((f, i) => this.tone('triangle', f, f, 0.22, 0.13, i * 0.11)); break;
+        case 'ride': this.tone('sawtooth', 40, 110, 0.6, 0.12); break;
+        case 'soft': this.burst(e.name === 'leaves' ? 3400 : 700, 0.7, 0.4, 0.45); break;
         case 'impact': this.tone('sine', 90, 40, 0.14, Math.min(0.5, e.v * 0.04)); break;
       }
     }

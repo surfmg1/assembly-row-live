@@ -33,3 +33,10 @@ export function lookAt(ex: number, ey: number, ez: number, tx: number, ty: numbe
   m[12] = -(sx * ex + sy * ey + sz * ez); m[13] = -(ux * ex + uy * ey + uz * ez); m[14] = fx * ex + fy * ey + fz * ez;
   return m;
 }
+
+export function ortho(l: number, r: number, b: number, t: number, n: number, f: number): M4 {
+  const m = ident();
+  m[0] = 2 / (r - l); m[5] = 2 / (t - b); m[10] = -2 / (f - n);
+  m[12] = -(r + l) / (r - l); m[13] = -(t + b) / (t - b); m[14] = -(f + n) / (f - n);
+  return m;
+}

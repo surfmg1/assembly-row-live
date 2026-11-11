@@ -2,16 +2,17 @@
 <title>Assembly Row Live</title>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
 <style>
-/* Layout: one full-bleed 3D room; HUD reads like MBTA station signage (black band, white condensed caps, one orange stripe). */
+/* Layout: one full-bleed 3D view; HUD reads like MBTA station signage (black band, white condensed caps, one orange stripe). */
 :root {
   color-scheme: light;
-  --concrete: #e7e9ec;
+  --concrete: #cfdbe8;
   --ink: #12151a;
   --ink-soft: #3b424c;
   --paper: #f8f9fb;
   --orange: #ed8b00;
   --danger: #d6402b;
   --hair: rgba(18, 21, 26, 0.16);
+  --summer: #3f9b47; --fall: #d9721a; --winter: #9fc4e8; --spring: #e889ad;
   --display: "Barlow Condensed", "Arial Narrow", "Helvetica Neue", Arial, sans-serif;
   --mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
 }
@@ -24,81 +25,105 @@ body { background: var(--concrete); color: var(--ink); font-family: var(--displa
   background: repeating-conic-gradient(from 0deg at 50% 46%, rgba(248,249,251,0) 0deg 5deg, rgba(248,249,251,0.9) 5.4deg 5.7deg, rgba(248,249,251,0) 6deg 11deg);
   -webkit-mask-image: radial-gradient(ellipse at 50% 46%, transparent 34%, #000 78%); mask-image: radial-gradient(ellipse at 50% 46%, transparent 34%, #000 78%); }
 
-.hud { position: absolute; inset: 0; pointer-events: none; display: flex; flex-direction: column; gap: 10px;
+.hud { position: absolute; inset: 0; pointer-events: none; display: flex; flex-direction: column; gap: 8px;
   padding-block: 12px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
 .hud button, .hud .stats { pointer-events: auto; }
-.top { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
 
-.sign { background: var(--ink); color: var(--paper); border-top: 5px solid var(--orange); padding: 6px 12px 8px; min-width: 132px; }
-.sign-mode { font-size: 30px; font-weight: 700; line-height: 1; letter-spacing: 0.04em; text-transform: uppercase; }
+.sign { align-self: flex-start; background: var(--ink); color: var(--paper); border-top: 5px solid var(--orange); padding: 6px 12px 8px; min-width: 132px; max-width: calc(100% - 136px); }
+.sign-mode { font-size: clamp(22px, 7vw, 30px); font-weight: 700; line-height: 1; letter-spacing: 0.04em; text-transform: uppercase; }
 .sign-sub { font-family: var(--mono); font-size: 12px; margin-top: 4px; color: var(--paper); opacity: 0.86; font-variant-numeric: tabular-nums; }
-.sign-zone { font-size: 16px; font-weight: 600; letter-spacing: 0.03em; margin-top: 3px; max-width: 190px; line-height: 1.1; }
+.sign-zone { font-size: 16px; font-weight: 600; letter-spacing: 0.03em; margin-top: 3px; line-height: 1.1; }
 .sign-zone:empty { display: none; }
-.goal { font-family: var(--mono); font-size: 11px; color: var(--ink-soft); margin-top: 2px; }
-#map { display: block; width: 104px; height: 104px; margin-top: 6px; margin-left: auto; border: 1px solid var(--hair); }
-.pads button.hot { background: var(--orange); border-width: 2px; }
 .flow { height: 4px; background: rgba(248, 249, 251, 0.2); margin-top: 7px; overflow: hidden; }
 .flow i { display: block; height: 100%; background: var(--orange); transform-origin: left; transform: scaleX(0); }
 .flow i.risk { background: var(--danger); }
 
-.score { position: absolute; top: 12px; right: max(16px, env(safe-area-inset-right, 0px)); text-align: right; background: var(--paper); border: 1px solid var(--hair); padding: 5px 10px 6px; min-width: 92px; }
+.score { position: absolute; top: 12px; right: max(16px, env(safe-area-inset-right, 0px)); text-align: right; background: var(--paper); border: 1px solid var(--hair); padding: 5px 8px 8px; width: 122px; }
 .score .lbl { font-size: 12px; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-soft); }
 .score #score { font-family: var(--mono); font-size: 20px; font-weight: 500; font-variant-numeric: tabular-nums; line-height: 1.15; }
+.goal { font-family: var(--mono); font-size: 10.5px; color: var(--ink-soft); margin-top: 2px; line-height: 1.35; }
+#map { display: block; width: 104px; height: 104px; margin-top: 6px; margin-left: auto; border: 1px solid var(--hair); }
 
-.lines { display: flex; flex-wrap: wrap; gap: 6px; max-width: calc(100% - 124px); }
-.lines button { font: 600 15px/1 var(--display); letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink); background: var(--paper);
+.lines { display: flex; flex-wrap: wrap; gap: 6px; max-width: calc(100% - 134px); }
+.lines button, .places button { font: 600 15px/1 var(--display); letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink); background: var(--paper);
   border: 1px solid var(--hair); border-radius: 0; padding: 9px 10px; cursor: pointer; }
-.lines button:hover { border-color: var(--ink); }
-.lines button:focus-visible, .pads button:focus-visible { outline: 3px solid var(--orange); outline-offset: 2px; }
-.lines .quiet { background: rgba(248, 249, 251, 0.72); color: var(--ink-soft); }
+.lines button:hover, .places button:hover { border-color: var(--ink); }
+button:focus-visible { outline: 3px solid var(--orange); outline-offset: 2px; }
+.lines .quiet { background: rgba(248, 249, 251, 0.78); color: var(--ink-soft); }
+.places { align-self: flex-start; display: grid; grid-template-columns: repeat(2, auto); gap: 4px; pointer-events: auto; }
+.places button { text-align: left; font-variant-numeric: tabular-nums; }
 
 .combo { min-height: 30px; align-self: center; text-align: center; font-size: 24px; font-weight: 700; letter-spacing: 0.03em; text-transform: uppercase; color: var(--ink);
-  text-shadow: 0 0 6px var(--concrete), 0 0 2px var(--concrete); max-width: 100%; text-wrap: balance; }
-.combo.live { color: var(--ink); }
-.combo.flash { color: var(--orange); font-size: 34px; text-shadow: 0 1px 0 var(--ink), 0 0 8px var(--concrete); }
-.hint { margin-top: auto; align-self: center; text-align: center; font-size: 19px; font-weight: 600; color: var(--paper); background: var(--ink); padding: 6px 12px; max-width: 34ch; text-wrap: balance; }
+  text-shadow: 0 0 6px var(--paper), 0 0 2px var(--paper); max-width: 100%; text-wrap: balance; }
+.combo.flash { color: var(--orange); font-size: 34px; text-shadow: 0 1px 0 var(--ink), 0 0 10px rgba(18, 21, 26, 0.35); }
+.hint { margin-top: auto; align-self: center; text-align: center; font-size: 19px; font-weight: 600; color: var(--paper); background: var(--ink); padding: 6px 12px; max-width: 36ch; text-wrap: balance; }
 .hint:empty { display: none; }
 
 .stats { align-self: flex-start; background: var(--ink); color: var(--paper); padding: 10px 12px; font-family: var(--mono); font-size: 12px; display: grid; grid-template-columns: auto auto; gap: 4px 14px; font-variant-numeric: tabular-nums; }
 .stats dt { opacity: 0.7; } .stats dd { margin: 0; text-align: right; }
-.keys { align-self: flex-start; font-family: var(--mono); font-size: 12px; color: var(--ink-soft); background: rgba(248, 249, 251, 0.82); padding: 6px 9px; line-height: 1.6; }
+.keys { align-self: flex-start; font-family: var(--mono); font-size: 12px; color: var(--ink-soft); background: rgba(248, 249, 251, 0.84); padding: 6px 9px; line-height: 1.6; }
 .keys b { color: var(--ink); font-weight: 500; }
 
 .stick { position: absolute; left: 0; bottom: 0; width: 52%; height: 52%; display: none; touch-action: none; }
 .stick::after { content: ""; position: absolute; left: max(28px, env(safe-area-inset-left, 0px)); bottom: calc(34px + env(safe-area-inset-bottom, 0px)); width: 112px; height: 112px; border-radius: 50%;
-  border: 2px dashed rgba(18, 21, 26, 0.28); }
+  border: 2px dashed rgba(18, 21, 26, 0.3); }
 .nub { position: absolute; width: 64px; height: 64px; border-radius: 50%; background: rgba(18, 21, 26, 0.8); border: 3px solid var(--orange); pointer-events: none; }
 .pads { position: absolute; right: max(16px, env(safe-area-inset-right, 0px)); bottom: calc(18px + env(safe-area-inset-bottom, 0px)); display: none; grid-template-columns: 94px 94px; gap: 8px; }
-  .pads button { font: 700 16px/1 var(--display); letter-spacing: 0.05em; text-transform: uppercase; height: 58px; border-radius: 0; border: 2px solid var(--ink);
-  background: rgba(248, 249, 251, 0.86); color: var(--ink); touch-action: none; -webkit-tap-highlight-color: transparent; padding: 0 4px; }
+.pads button { font: 700 16px/1 var(--display); letter-spacing: 0.05em; text-transform: uppercase; height: 58px; border-radius: 0; border: 2px solid var(--ink);
+  background: rgba(248, 249, 251, 0.88); color: var(--ink); touch-action: none; -webkit-tap-highlight-color: transparent; padding: 0 4px; }
 .pads button.small { height: 40px; font-size: 14px; font-weight: 600; border-width: 1px; }
 .pads button.jump { grid-column: 1 / -1; height: 72px; font-size: 24px; background: var(--orange); }
 .pads button.down { background: var(--ink); color: var(--paper); }
+.pads button.hot { background: var(--orange); border-width: 2px; }
 @media (pointer: coarse) { .stick { display: block; } .pads { display: grid; } .keys { display: none; } .hint { margin-bottom: 214px; } }
 .touch .stick { display: block; } .touch .pads { display: grid; } .touch .keys { display: none; } .touch .hint { margin-bottom: 214px; }
+
+/* Season menu */
+.stage.menuing .hud, .stage.menuing .pads, .stage.menuing .stick { visibility: hidden; }
+@media (max-height: 600px) { .card { gap: 9px; padding: 12px 18px 14px; } .card h1 { font-size: 34px; } .seasons button { padding: 9px 4px 7px; } .blurb { min-height: 2.5em; font-size: 17px; } .play { padding: 9px; font-size: 22px; } .fine { display: none; } }
+.menu { position: absolute; inset: 0; display: flex; overflow-y: auto; background: rgba(18, 21, 26, 0.34);
+  padding-block: 16px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); touch-action: pan-y; }
+.card { margin: auto; width: min(100%, 520px); background: var(--ink); color: var(--paper); border-top: 8px solid var(--orange); padding: 20px 20px 22px; display: flex; flex-direction: column; gap: 14px; }
+.card h1 { margin: 0; font-size: clamp(38px, 11vw, 54px); font-weight: 700; line-height: 0.92; letter-spacing: 0.02em; text-transform: uppercase; text-wrap: balance; }
+.card .where { font-family: var(--mono); font-size: 12px; opacity: 0.75; margin-top: -6px; }
+.card h2 { margin: 4px 0 0; font-size: 14px; font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase; opacity: 0.7; }
+.seasons { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.weathers { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.menu button { font-family: var(--display); text-transform: uppercase; letter-spacing: 0.05em; border-radius: 0; cursor: pointer; min-width: 0; }
+.seasons button { font-size: 21px; font-weight: 700; padding: 16px 4px 12px; background: #23272e; color: var(--paper); border: 1px solid #3a404a; border-top: 6px solid var(--sw); }
+.weathers button { font-size: 16px; font-weight: 600; padding: 10px 4px; background: #23272e; color: var(--paper); border: 1px solid #3a404a; }
+.menu button[aria-pressed="true"] { background: var(--paper); color: var(--ink); border-color: var(--paper); }
+.seasons button[aria-pressed="true"] { border-top-color: var(--sw); }
+.blurb { margin: 0; font-size: 19px; font-weight: 500; line-height: 1.25; min-height: 3.75em; text-wrap: pretty; }
+.play { font-size: 26px; font-weight: 700; padding: 14px; background: var(--orange); color: var(--ink); border: 0; }
+.play:hover { filter: brightness(1.08); }
+.fine { margin: 0; font-family: var(--mono); font-size: 11px; line-height: 1.5; opacity: 0.7; }
+@media (max-width: 420px) { .seasons, .weathers { grid-template-columns: repeat(2, 1fr); } .blurb { min-height: 0; } }
+
 .fail { position: absolute; inset: 0; display: grid; place-items: center; text-align: center; background: var(--concrete); color: var(--ink); font-size: 20px;
   padding-block: 24px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
-@media (max-height: 520px) { .keys { display: none; } .hint { font-size: 16px; } }
+@media (max-height: 560px) { .keys { display: none; } .hint { font-size: 16px; } }
+@media (prefers-reduced-motion: reduce) { .streaks { display: none; } }
 </style>
 
 <div class="stage" id="stage">
   <canvas id="gl" aria-label="Assembly Row, Somerville, as a playable neighborhood"></canvas>
   <div class="streaks" id="streaks"></div>
   <div class="hud">
-    <div class="top">
-      <div class="sign">
-        <div class="sign-mode" id="mode">Skate</div>
-        <div class="sign-sub"><span id="speed">0</span> mph</div>
-        <div class="sign-zone" id="zone"></div>
-        <div class="flow" title="Flow"><i id="flow"></i></div>
-      </div>
-      <div class="score"><div class="lbl">Score</div><div id="score">0</div><div class="goal" id="goal" hidden>Rivets 0/20</div><canvas id="map" width="208" height="208" aria-label="Map of the area around you"></canvas></div>
+    <div class="sign">
+      <div class="sign-mode" id="mode">Skate</div>
+      <div class="sign-sub"><span id="speed">0</span> mph</div>
+      <div class="sign-zone" id="zone"></div>
+      <div class="flow" title="Flow"><i id="flow"></i></div>
     </div>
+    <div class="score"><div class="lbl">Score</div><div id="score">0</div><div class="goal" id="goal" hidden>Rivets 0/20</div><canvas id="map" width="208" height="208" aria-label="Map of the area around you"></canvas></div>
     <div class="lines" id="lines">
+      <button type="button" id="menuBtn">Seasons</button>
+      <button type="button" id="placesBtn" aria-expanded="false">Places</button>
       <button type="button" id="statsBtn" class="quiet" aria-expanded="false">Stats</button>
       <button type="button" id="muteBtn" class="quiet" aria-pressed="false">Sound on</button>
     </div>
-    <div class="combo" id="combo" aria-live="off"></div>
+    <div class="places" id="places" hidden></div>
     <dl class="stats" id="stats" hidden>
       <dt>fps median / 1% low</dt><dd id="sFps">–</dd>
       <dt>draw</dt><dd id="sDraw">–</dd>
@@ -108,8 +133,9 @@ body { background: var(--concrete); color: var(--ink); font-family: var(--displa
       <dt>best combo</dt><dd id="sBest">–</dd>
       <dt>bails</dt><dd id="sBails">–</dd>
     </dl>
+    <div class="combo" id="combo" aria-live="off"></div>
     <div class="hint" id="hint"></div>
-    <div class="keys" id="keys"><b>W A S D</b> move · <b>Space</b> jump · <b>Shift</b> slide, manual, tuck · <b>E</b> trick<br><b>Q</b> switch mode, kayak at docks · <b>R</b> bail · <b>1–5</b> places · drag to look · gamepad works</div>
+    <div class="keys" id="keys"><b>W A S D</b> move · <b>Space</b> jump, horn · <b>Shift</b> slide, dig in, brake · <b>E</b> trick<br><b>Q</b> switch, grab rope, get on or off · <b>R</b> bail · <b>1–7</b> places · <b>Esc</b> seasons · drag to look</div>
   </div>
   <div class="stick" id="stick"><div class="nub" id="nub" hidden></div></div>
   <div class="pads">
@@ -118,6 +144,29 @@ body { background: var(--concrete); color: var(--ink); font-family: var(--displa
     <button type="button" id="bTrick" data-btn="trick">Kickflip</button>
     <button type="button" id="bCrouch" data-btn="crouch">Manual</button>
     <button type="button" class="jump" id="bJump" data-btn="jump">Ollie</button>
+  </div>
+  <div class="menu" id="menu">
+    <div class="card">
+      <h1>Assembly Row Live</h1>
+      <div class="where">Somerville, Massachusetts · Orange Line</div>
+      <h2>Season</h2>
+      <div class="seasons">
+        <button type="button" id="sWinter" data-season="winter" style="--sw: var(--winter)" aria-pressed="false">Winter</button>
+        <button type="button" id="sSpring" data-season="spring" style="--sw: var(--spring)" aria-pressed="false">Spring</button>
+        <button type="button" id="sSummer" data-season="summer" style="--sw: var(--summer)" aria-pressed="false">Summer</button>
+        <button type="button" id="sFall" data-season="fall" style="--sw: var(--fall)" aria-pressed="false">Fall</button>
+      </div>
+      <h2>Weather</h2>
+      <div class="weathers">
+        <button type="button" id="wSunny" data-weather="sunny" aria-pressed="false">Sunny</button>
+        <button type="button" id="wBlustery" data-weather="blustery" aria-pressed="false">Blustery</button>
+        <button type="button" id="wRainy" data-weather="rainy" aria-pressed="false">Rainy</button>
+        <button type="button" id="wSnowy" data-weather="snowy" aria-pressed="false">Snowy</button>
+      </div>
+      <p class="blurb" id="blurb"></p>
+      <button type="button" class="play" id="play">Play</button>
+      <p class="fine">Keyboard, gamepad or touch. A fan-made, stylized neighborhood; places are approximate and nothing here is affiliated with the businesses named.</p>
+    </div>
   </div>
   <div class="fail" id="fail" hidden></div>
 </div>

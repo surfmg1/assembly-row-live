@@ -2,6 +2,20 @@
 
 Written 10 November 2026 against the master build prompt of the same date.
 
+## 0a. Update, 11 November: seasons, traffic, the bungee tow, plows and mowers
+
+The map was rebuilt from the owner's reference photos (`docs/reference-notes.md`): the real street grid, the right buildings in the right blocks, three freestanding truss frames, the marina, Club Volo, Lucky Strike, the Marketplace strip in order. New in this build:
+
+- **Four seasons and four kinds of weather**, chosen from a start menu and changeable mid-game: sun shadows, a procedural sky, snow cover, wet streets, rain, snowfall, blowing leaves, blossom, lit windows at dusk.
+- **Traffic** on a loop (Grand Union, Great River Road, the track-side street, Foley Street): cars both ways, and snowplows in winter. Cars brake and honk for someone standing in the road.
+- **Bungee tow**: a friend's pickup pulls you on a snowboard (or skateboard or cart in other seasons). Snowbanks line the loop in winter and can be carved or launched off. Digging an edge stretches the cord for a slingshot. Near-misses with traffic score.
+- **Drivable snowplow** (winter) that clears the Marketplace lot, and **ride-on mowers** (other seasons) that stripe the lawns, each with progress goals.
+- Leaf piles in fall and snowmen in winter to smash; text signs on buildings.
+
+Owner's instruction: this is a personal, non-commercial project, so real business names are shown and map screenshots were used as layout reference. Both need revisiting before any public release.
+
+Still stylized boxes, not photoreal; still hand-laid, not survey-accurate. Not built: scooter, bike, driving ordinary cars, riding the T, apartment life, the mischief/Heat layer, talking characters, day and night.
+
 ## 0. Update, later on 10 November: a playable Assembly Row
 
 You asked for a game on Assembly Row you could play in a browser tonight, with invented train times. That is now the default build. It is **not** Milestone 2 as the brief defines it: the map is laid out by hand from general knowledge of the neighborhood, not ingested from MassGIS, LiDAR or OpenStreetMap, because this workspace cannot download them. Street positions are approximate and distances are compressed. See ADR 0005.
