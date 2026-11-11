@@ -10,7 +10,7 @@ Start with `PLAN.md`.
 npm install
 npm run build      # writes dist/index.html, one self-contained page
 npm test           # headless physics tests
-npm run capture    # headless browser smoke test and screenshots; add -- --video for a recording
+npm run capture    # headless browser smoke test and screenshots
 ```
 
 Open `dist/index.html` in a browser.
