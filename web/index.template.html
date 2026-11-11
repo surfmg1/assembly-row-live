@@ -1,0 +1,126 @@
+<meta name="claude:viewport-fit-sides" content="cover">
+<title>Assembly Row Live</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: one full-bleed 3D room; HUD reads like MBTA station signage (black band, white condensed caps, one orange stripe). */
+:root {
+  color-scheme: light;
+  --concrete: #e7e9ec;
+  --ink: #12151a;
+  --ink-soft: #3b424c;
+  --paper: #f8f9fb;
+  --orange: #ed8b00;
+  --danger: #d6402b;
+  --hair: rgba(18, 21, 26, 0.16);
+  --display: "Barlow Condensed", "Arial Narrow", "Helvetica Neue", Arial, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+[hidden] { display: none !important; }
+html, body { height: 100%; }
+body { background: var(--concrete); color: var(--ink); font-family: var(--display); overflow: hidden; overscroll-behavior: none; }
+.stage { position: relative; height: 100%; overflow: hidden; user-select: none; -webkit-user-select: none; touch-action: none; }
+#gl { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; background: var(--concrete); }
+.streaks { position: absolute; inset: -20%; pointer-events: none; opacity: 0;
+  background: repeating-conic-gradient(from 0deg at 50% 46%, rgba(248,249,251,0) 0deg 5deg, rgba(248,249,251,0.9) 5.4deg 5.7deg, rgba(248,249,251,0) 6deg 11deg);
+  -webkit-mask-image: radial-gradient(ellipse at 50% 46%, transparent 34%, #000 78%); mask-image: radial-gradient(ellipse at 50% 46%, transparent 34%, #000 78%); }
+
+.hud { position: absolute; inset: 0; pointer-events: none; display: flex; flex-direction: column; gap: 10px;
+  padding-block: 12px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+.hud button, .hud .stats { pointer-events: auto; }
+.top { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+
+.sign { background: var(--ink); color: var(--paper); border-top: 5px solid var(--orange); padding: 6px 12px 8px; min-width: 132px; }
+.sign-mode { font-size: 30px; font-weight: 700; line-height: 1; letter-spacing: 0.04em; text-transform: uppercase; }
+.sign-sub { font-family: var(--mono); font-size: 12px; margin-top: 4px; color: var(--paper); opacity: 0.86; font-variant-numeric: tabular-nums; }
+.sign-zone { font-size: 16px; font-weight: 600; letter-spacing: 0.03em; margin-top: 3px; max-width: 190px; line-height: 1.1; }
+.sign-zone:empty { display: none; }
+.goal { font-family: var(--mono); font-size: 11px; color: var(--ink-soft); margin-top: 2px; }
+#map { display: block; width: 104px; height: 104px; margin-top: 6px; margin-left: auto; border: 1px solid var(--hair); }
+.pads button.hot { background: var(--orange); border-width: 2px; }
+.flow { height: 4px; background: rgba(248, 249, 251, 0.2); margin-top: 7px; overflow: hidden; }
+.flow i { display: block; height: 100%; background: var(--orange); transform-origin: left; transform: scaleX(0); }
+.flow i.risk { background: var(--danger); }
+
+.score { position: absolute; top: 12px; right: max(16px, env(safe-area-inset-right, 0px)); text-align: right; background: var(--paper); border: 1px solid var(--hair); padding: 5px 10px 6px; min-width: 92px; }
+.score .lbl { font-size: 12px; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-soft); }
+.score #score { font-family: var(--mono); font-size: 20px; font-weight: 500; font-variant-numeric: tabular-nums; line-height: 1.15; }
+
+.lines { display: flex; flex-wrap: wrap; gap: 6px; max-width: calc(100% - 124px); }
+.lines button { font: 600 15px/1 var(--display); letter-spacing: 0.06em; text-transform: uppercase; color: var(--ink); background: var(--paper);
+  border: 1px solid var(--hair); border-radius: 0; padding: 9px 10px; cursor: pointer; }
+.lines button:hover { border-color: var(--ink); }
+.lines button:focus-visible, .pads button:focus-visible { outline: 3px solid var(--orange); outline-offset: 2px; }
+.lines .quiet { background: rgba(248, 249, 251, 0.72); color: var(--ink-soft); }
+
+.combo { min-height: 30px; align-self: center; text-align: center; font-size: 24px; font-weight: 700; letter-spacing: 0.03em; text-transform: uppercase; color: var(--ink);
+  text-shadow: 0 0 6px var(--concrete), 0 0 2px var(--concrete); max-width: 100%; text-wrap: balance; }
+.combo.live { color: var(--ink); }
+.combo.flash { color: var(--orange); font-size: 34px; text-shadow: 0 1px 0 var(--ink), 0 0 8px var(--concrete); }
+.hint { margin-top: auto; align-self: center; text-align: center; font-size: 19px; font-weight: 600; color: var(--paper); background: var(--ink); padding: 6px 12px; max-width: 34ch; text-wrap: balance; }
+.hint:empty { display: none; }
+
+.stats { align-self: flex-start; background: var(--ink); color: var(--paper); padding: 10px 12px; font-family: var(--mono); font-size: 12px; display: grid; grid-template-columns: auto auto; gap: 4px 14px; font-variant-numeric: tabular-nums; }
+.stats dt { opacity: 0.7; } .stats dd { margin: 0; text-align: right; }
+.keys { align-self: flex-start; font-family: var(--mono); font-size: 12px; color: var(--ink-soft); background: rgba(248, 249, 251, 0.82); padding: 6px 9px; line-height: 1.6; }
+.keys b { color: var(--ink); font-weight: 500; }
+
+.stick { position: absolute; left: 0; bottom: 0; width: 52%; height: 52%; display: none; touch-action: none; }
+.stick::after { content: ""; position: absolute; left: max(28px, env(safe-area-inset-left, 0px)); bottom: calc(34px + env(safe-area-inset-bottom, 0px)); width: 112px; height: 112px; border-radius: 50%;
+  border: 2px dashed rgba(18, 21, 26, 0.28); }
+.nub { position: absolute; width: 64px; height: 64px; border-radius: 50%; background: rgba(18, 21, 26, 0.8); border: 3px solid var(--orange); pointer-events: none; }
+.pads { position: absolute; right: max(16px, env(safe-area-inset-right, 0px)); bottom: calc(18px + env(safe-area-inset-bottom, 0px)); display: none; grid-template-columns: 94px 94px; gap: 8px; }
+  .pads button { font: 700 16px/1 var(--display); letter-spacing: 0.05em; text-transform: uppercase; height: 58px; border-radius: 0; border: 2px solid var(--ink);
+  background: rgba(248, 249, 251, 0.86); color: var(--ink); touch-action: none; -webkit-tap-highlight-color: transparent; padding: 0 4px; }
+.pads button.small { height: 40px; font-size: 14px; font-weight: 600; border-width: 1px; }
+.pads button.jump { grid-column: 1 / -1; height: 72px; font-size: 24px; background: var(--orange); }
+.pads button.down { background: var(--ink); color: var(--paper); }
+@media (pointer: coarse) { .stick { display: block; } .pads { display: grid; } .keys { display: none; } .hint { margin-bottom: 214px; } }
+.touch .stick { display: block; } .touch .pads { display: grid; } .touch .keys { display: none; } .touch .hint { margin-bottom: 214px; }
+.fail { position: absolute; inset: 0; display: grid; place-items: center; text-align: center; background: var(--concrete); color: var(--ink); font-size: 20px;
+  padding-block: 24px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+@media (max-height: 520px) { .keys { display: none; } .hint { font-size: 16px; } }
+</style>
+
+<div class="stage" id="stage">
+  <canvas id="gl" aria-label="Assembly Row, Somerville, as a playable neighborhood"></canvas>
+  <div class="streaks" id="streaks"></div>
+  <div class="hud">
+    <div class="top">
+      <div class="sign">
+        <div class="sign-mode" id="mode">Skate</div>
+        <div class="sign-sub"><span id="speed">0</span> mph</div>
+        <div class="sign-zone" id="zone"></div>
+        <div class="flow" title="Flow"><i id="flow"></i></div>
+      </div>
+      <div class="score"><div class="lbl">Score</div><div id="score">0</div><div class="goal" id="goal" hidden>Rivets 0/20</div><canvas id="map" width="208" height="208" aria-label="Map of the area around you"></canvas></div>
+    </div>
+    <div class="lines" id="lines">
+      <button type="button" id="statsBtn" class="quiet" aria-expanded="false">Stats</button>
+      <button type="button" id="muteBtn" class="quiet" aria-pressed="false">Sound on</button>
+    </div>
+    <div class="combo" id="combo" aria-live="off"></div>
+    <dl class="stats" id="stats" hidden>
+      <dt>fps median / 1% low</dt><dd id="sFps">–</dd>
+      <dt>draw</dt><dd id="sDraw">–</dd>
+      <dt>sim per step</dt><dd id="sSim">–</dd>
+      <dt>canvas</dt><dd id="sRes">–</dd>
+      <dt>first trick</dt><dd id="sFirst">–</dd>
+      <dt>best combo</dt><dd id="sBest">–</dd>
+      <dt>bails</dt><dd id="sBails">–</dd>
+    </dl>
+    <div class="hint" id="hint"></div>
+    <div class="keys" id="keys"><b>W A S D</b> move · <b>Space</b> jump · <b>Shift</b> slide, manual, tuck · <b>E</b> trick<br><b>Q</b> switch mode, kayak at docks · <b>R</b> bail · <b>1–5</b> places · drag to look · gamepad works</div>
+  </div>
+  <div class="stick" id="stick"><div class="nub" id="nub" hidden></div></div>
+  <div class="pads">
+    <button type="button" class="small" id="bSwitch" data-btn="switch">Cart</button>
+    <button type="button" class="small" id="bBail" data-btn="bail">Bail</button>
+    <button type="button" id="bTrick" data-btn="trick">Kickflip</button>
+    <button type="button" id="bCrouch" data-btn="crouch">Manual</button>
+    <button type="button" class="jump" id="bJump" data-btn="jump">Ollie</button>
+  </div>
+  <div class="fail" id="fail" hidden></div>
+</div>
+<script>
+/*__BUNDLE__*/
+</script>

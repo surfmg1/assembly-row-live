@@ -1,0 +1,19 @@
+{
+  "name": "assembly-row-live",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Assembly Row: Live. A playable Assembly Row in the browser.",
+  "type": "module",
+  "scripts": {
+    "build": "node tools/build.mjs --min",
+    "test": "tsx --test tests/sim.test.ts tests/city.test.ts",
+    "typecheck": "tsc --noEmit",
+    "capture": "node tools/shots.mjs"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.2",
+    "playwright": "1.63.0",
+    "tsx": "4.23.12",
+    "typescript": "6.0.3"
+  }
+}
