@@ -98,6 +98,10 @@ export class Sound {
         case 'splash': this.burst(500, 0.5, 0.5, 0.6); break;
         case 'train': this.tone('sawtooth', 311, 300, 0.6, 0.2); this.tone('sawtooth', 370, 360, 0.6, 0.2); break;
         case 'zap': this.tone('square', 90, 1800, 0.25, 0.14); break;
+        case 'token': this.tone('triangle', 1175 + (e.v % 5) * 60, 1568, 0.09, 0.09); break;
+        case 'line': [784, 988, 1175, 1568].forEach((f, i) => this.tone('triangle', f, f, 0.16, 0.13, i * 0.07)); break;
+        case 'runTick': this.tone('square', e.v <= 3 ? 988 : 660, e.v <= 3 ? 988 : 660, 0.08, 0.06); break;
+        case 'runEnd': [1047, 784, 659, 523].forEach((f, i) => this.tone('triangle', f, f, 0.3, 0.15, i * 0.14)); break;
         case 'rivet': this.tone('triangle', 880, 880, 0.1, 0.14); this.tone('triangle', 1320, 1320, 0.25, 0.14, 0.09); break;
         case 'finish': [523, 659, 784, 1047].forEach((f, i) => this.tone('triangle', f, f, 0.22, 0.14, i * 0.12)); break;
         case 'goose': this.tone('square', 420, 300, 0.16, 0.12); this.tone('square', 440, 310, 0.18, 0.12, 0.2); break;

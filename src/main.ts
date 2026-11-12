@@ -1,7 +1,8 @@
 // Browser entry point. The city is the default; add #lab to the address for the grey movement lab.
 import { buildLab, topAt, trainAt, World, Env, Season, Weather, makeEnv } from './sim/world';
 import { buildCity, M } from './sim/city';
-import { makePlayer, step, warp, rebind, context, DT, Ev, Input } from './sim/player';
+import { makePlayer, step, warp, rebind, context, startRun, endRun, DT, Ev, Input } from './sim/player';
+import { GOALS, MEDALS, medalFor } from './goals';
 import { Renderer, Instances, Look, Frame, Quality } from './render/renderer';
 import { buildStatic, buildDynamic, buildField, View } from './render/scene';
 import { chain, trans, rotX, rotY, scale } from './render/mat';
@@ -128,7 +129,7 @@ function start() {
     });
   }
   fillPlaces();
-  $('placesBtn').addEventListener('click', () => { placesEl.hidden = !placesEl.hidden; $('placesBtn').setAttribute('aria-expanded', String(!placesEl.hidden)); });
+  $('placesBtn').addEventListener('click', () => { placesEl.hidden = !placesEl.hidden; $('goals').hidden = true; $('placesBtn').setAttribute('aria-expanded', String(!placesEl.hidden)); });
   $('goal').hidden = !city;
   let best = 0;
   try { best = Number(localStorage.getItem('arl-trial-best')) || 0; } catch (e) { /* storage is optional */ }
@@ -141,7 +142,40 @@ function start() {
     for (const b of Array.from(menu.querySelectorAll<HTMLElement>('[data-season]'))) b.setAttribute('aria-pressed', String(b.dataset.season === pickS));
     for (const b of Array.from(menu.querySelectorAll<HTMLElement>('[data-weather]'))) b.setAttribute('aria-pressed', String(b.dataset.weather === pickW));
     $('blurb').textContent = BLURB[pickS];
+    let b = 0; try { b = Number(localStorage.getItem('arl-run-best-' + pickS)) || 0; } catch (e) { /* optional */ }
+    const md = medalFor(b);
+    $('bestline').textContent = b ? 'Best two-minute run in ' + pickS + ': ' + b.toLocaleString('en-US') + (md ? ' · ' + md : '') : 'Two-minute run: score as much as you can before the clock runs out.';
   }
+
+  // --- Goals ------------------------------------------------------------------------------------
+  const goalsDone = new Set<string>();
+  try { for (const id of JSON.parse(localStorage.getItem('arl-goals') || '[]')) goalsDone.add(id); } catch (e) { /* optional */ }
+  const liveGoals = () => GOALS.filter(g => !g.when || g.when(w));
+  function paintGoals() {
+    const gs = liveGoals(), ul = $('goalList'); ul.textContent = '';
+    $('goalsBtn').textContent = 'Goals ' + gs.filter(g => goalsDone.has(g.id)).length + '/' + gs.length;
+    if ($('goals').hidden) return;
+    for (const g of gs) {
+      const done = goalsDone.has(g.id), v = Math.min(g.target, g.value(p, w));
+      const li = document.createElement('li'); if (done) li.className = 'done';
+      li.append(document.createTextNode((done ? '✓ ' : '') + g.text));
+      const sp = document.createElement('span'); sp.textContent = done ? 'done' : (g.target > 1 ? v + '/' + g.target + ' · ' : '') + '+' + g.pts.toLocaleString('en-US'); li.append(sp);
+      const bar = document.createElement('i'), fill = document.createElement('b'); fill.style.width = Math.round(v / g.target * 100) + '%'; bar.append(fill); li.append(bar);
+      ul.append(li);
+    }
+  }
+  function checkGoals() {
+    let changed = false;
+    for (const g of liveGoals()) {
+      if (goalsDone.has(g.id) || g.value(p, w) < g.target) continue;
+      goalsDone.add(g.id); p.score += g.pts; changed = true;
+      say('Goal: ' + g.text + '  +' + g.pts.toLocaleString('en-US'), 3.2); sound.events([{ type: 'finish', v: 0 }]);
+    }
+    if (changed) { try { localStorage.setItem('arl-goals', JSON.stringify(Array.from(goalsDone))); } catch (e) { /* optional */ } paintGoals(); }
+  }
+  let goalsPaintT = 0;
+  $('goalsBtn').addEventListener('click', () => { const g = $('goals'); g.hidden = !g.hidden; placesEl.hidden = true; $('goalsBtn').setAttribute('aria-expanded', String(!g.hidden)); paintGoals(); ($('goalsBtn') as HTMLElement).blur(); });
+  $('goalsBtn').hidden = !city;
   function setEnv(s: Season, wt: Weather, spawn = -1) {
     season = s; weather = wt; env = makeEnv(s, wt);
     w = buildCity(env); rebind(w, p); loadWorld(); fillPlaces();
@@ -151,15 +185,36 @@ function start() {
   }
   for (const b of Array.from(menu.querySelectorAll<HTMLElement>('[data-season]'))) b.addEventListener('click', () => { pickS = b.dataset.season as Season; pickW = DEFAULT_WEATHER[pickS]; paintMenu(); });
   for (const b of Array.from(menu.querySelectorAll<HTMLElement>('[data-weather]'))) b.addEventListener('click', () => { pickW = b.dataset.weather as Weather; paintMenu(); });
-  $('play').addEventListener('click', () => {
+  const RUN_SECS = 120, runKey = () => 'arl-run-best-' + season;
+  const runBest = () => { try { return Number(localStorage.getItem(runKey())) || 0; } catch (e) { return 0; } };
+  function begin(run: boolean) {
     sound.start();
     const e = makeEnv(pickS, pickW);
     setEnv(pickS, pickW, e.snow ? 3 : pickS === 'fall' ? 1 : 0);
-    menu.hidden = true; paused = false; stage.classList.remove('menuing'); ($('play') as HTMLElement).blur();
-  });
-  const openMenu = () => { if (!city) return; pickS = season; pickW = weather; paintMenu(); menu.hidden = false; paused = true; placesEl.hidden = true; stage.classList.add('menuing'); };
+    if (run) { startRun(w, p, RUN_SECS); say('Two minutes. Go.', 2); } else endRun(p);
+    menu.hidden = true; $('result').hidden = true; paused = false; stage.classList.remove('menuing');
+    (document.activeElement as HTMLElement | null)?.blur?.();
+  }
+  $('play').addEventListener('click', () => begin(false));
+  $('runBtn').addEventListener('click', () => begin(true));
+  $('rAgain').addEventListener('click', () => { pickS = season; pickW = weather; begin(true); });
+  $('rFree').addEventListener('click', () => { $('result').hidden = true; paused = false; stage.classList.remove('menuing'); ($('rFree') as HTMLElement).blur(); });
+  function showResult(score: number) {
+    const was = runBest(), best = Math.max(was, score), medal = medalFor(score);
+    try { localStorage.setItem(runKey(), String(best)); } catch (e) { /* optional */ }
+    $('rScore').textContent = score.toLocaleString('en-US');
+    $('rMedal').textContent = (medal ? medal + ' medal' : '') + (score > was && was > 0 ? (medal ? ' · ' : '') + 'New best' : '');
+    $('rCombo').textContent = p.best.toLocaleString('en-US'); $('rTricks').textContent = String(p.st.tricks);
+    $('rTokens').textContent = p.st.tokens + ' · ' + p.st.lines; $('rBails').textContent = String(p.bails); $('rBest').textContent = best.toLocaleString('en-US');
+    const next = MEDALS.slice().reverse().find(m => m[1] > score);
+    $('rNext').textContent = next ? next[0] + ' is ' + next[1].toLocaleString('en-US') + '. Link different tricks before you land, and clear whole token lines for 500 each.' : 'Gold. Try another season: the lines ride differently in the snow.';
+    $('result').hidden = false; paused = true; placesEl.hidden = true; $('goals').hidden = true; stage.classList.add('menuing');
+  }
+  const openMenu = () => {
+    if (!city || !$('result').hidden) return; pickS = season; pickW = weather; paintMenu(); menu.hidden = false; paused = true; placesEl.hidden = true; $('goals').hidden = true; stage.classList.add('menuing');
+  };
   $('menuBtn').addEventListener('click', openMenu);
-  controls.onMenu = () => { if (menu.hidden) openMenu(); else if (p.time > 0) { menu.hidden = true; paused = false; stage.classList.remove('menuing'); } };
+  controls.onMenu = () => { if (!$('result').hidden) return; if (menu.hidden) openMenu(); else if (p.time > 0) { menu.hidden = true; paused = false; stage.classList.remove('menuing'); } };
   if (city) { paintMenu(); stage.classList.add('menuing'); } else menu.hidden = true;
 
   const cam = { yaw: p.yaw, user: 0, pitch: 0.3, dist: 6, idle: 9, x: 0, y: 0, z: 0 };
@@ -217,6 +272,9 @@ function start() {
         case 'bail': shake += 0.7; say(why || BAILS[p.bails % BAILS.length]); break;
         case 'busted': say('Busted. No skating on the courts.', 2.6); cam.yaw = p.yaw; cam.user = 0; view.y = p.y; break;
         case 'bank': say('+' + e.v.toLocaleString('en-US'), 1.4); break;
+        case 'token': { const k = w.tokens[e.v]; burst(7, k[0], k[1], k[2], 2.2, 2.5, [1.0, 0.62, 0.1], 0.09, 0.45, M.EMIS, 9); break; }
+        case 'line': say('Line cleared  +500', 1.8); break;
+        case 'runEnd': showResult(e.v); break;
         case 'rivet': say('Ford rivet ' + e.v + ' of ' + w.rivets.length, 2); break;
         case 'trialStart': say('Station to the boathouse. Go.', 2); break;
         case 'finish':
@@ -372,6 +430,10 @@ function start() {
       if (zn !== zoneName) { zoneName = zn; $('zone').textContent = zn; }
       $('speed').textContent = String(Math.round(sp * 2.23694));
       $('score').textContent = p.score.toLocaleString('en-US');
+      if (city && !paused) checkGoals();
+      goalsPaintT -= 0.1; if (goalsPaintT <= 0) { goalsPaintT = 1; if (city) paintGoals(); }
+      const tm = $('timer'); tm.hidden = p.runT < 0;
+      if (p.runT >= 0) { const s = Math.ceil(p.runT); tm.textContent = Math.floor(s / 60) + ':' + (s % 60 < 10 ? '0' : '') + (s % 60); tm.classList.toggle('late', s <= 10); }
       if (city) {
         const pct = p.fieldTotal ? Math.round(p.fieldN / p.fieldTotal * 100) : 0;
         $('goal').textContent = 'Rivets ' + p.rivetN + '/' + w.rivets.length + ' · ' + (env.snow ? 'Lot ' : 'Lawns ') + pct + '%' + (p.tow.laps ? ' · lap ' + p.tow.laps : '') + (p.trialBest ? ' · best ' + clock(p.trialBest) : '');
@@ -463,7 +525,8 @@ function start() {
   (window as any).__lab = {
     p, cam, get w() { return w; },
     quality(q: Quality) { setQuality(q, false); autoQ = false; },
-    go(s: Season, wt: Weather, spawn: number) { setEnv(s, wt, spawn); menu.hidden = true; paused = false; stage.classList.remove('menuing'); },
+    go(s: Season, wt: Weather, spawn: number) { setEnv(s, wt, spawn); menu.hidden = true; $('result').hidden = true; paused = false; stage.classList.remove('menuing'); },
+    run(secs: number) { startRun(w, p, secs); },
     stats: () => { stats(); return { fpsMed, fpsLow, simUs, drawCalls: renderer.drawCalls, boxes: renderer.boxes, staticBoxes: boxesStatic }; },
   };
   requestAnimationFrame(frame);

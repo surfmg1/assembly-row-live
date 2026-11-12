@@ -415,6 +415,14 @@ function drawCity(out: Instances, w: World, p: Player, v: View) {
     const m = chain(trans(r[0], r[1] + Math.sin(t * 2 + i) * 0.15, r[2]), rotY(t * 1.6 + i));
     out.push(mul(m, scale(0.62, 0.62, 0.62)), 1.0, 0.62, 0.05, M.EMIS, G.BLOB); out.push(chain(m, trans(0, -0.45, 0), scale(0.22, 0.7, 0.22)), 0.62, 0.42, 0.2, M.METAL, G.CYL);
   }
+  // T tokens: a spinning orange disc with a white T, like a subway token.
+  for (let i = 0; i < w.tokens.length; i++) {
+    if (p.tokens[i] > 0) continue;
+    const k = w.tokens[i]; if (Math.abs(k[0] - p.x) + Math.abs(k[2] - p.z) > 190) continue;
+    const m = chain(trans(k[0], k[1] + Math.sin(t * 2.4 + i * 0.7) * 0.1, k[2]), rotY(t * 2.2 + i * 0.5));
+    out.push(chain(m, rotX(Math.PI / 2), scale(0.78, 0.09, 0.78)), 1.0, 0.56, 0.04, M.EMIS, G.CYL);
+    for (const sz of [-0.06, 0.06]) { boxAt(out, m, 0, 0.17, sz, 0.42, 0.11, 0.02, WHITE, M.PLAIN); boxAt(out, m, 0, -0.06, sz, 0.12, 0.4, 0.02, WHITE, M.PLAIN); }
+  }
   const cold = env.snow || env.season === 'fall', rain = env.weather === 'rainy';
   for (const n of p.npcs) {
     if (Math.abs(n.x - p.x) + Math.abs(n.z - p.z) > 170) continue;

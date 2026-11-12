@@ -126,6 +126,8 @@ export interface World {
   trial: { sx: number; sz: number; fx: number; fz: number; r: number } | null;
   env: Env; path: Path | null; cars: CarSeed[]; towS: number; fields: FieldSeed[]; rides: RideSeed[];
   signs: SignSeed[]; trees: TreeSeed[]; lamps: number[][]; parked: ParkedSeed[]; turbine: number[] | null;
+  /** T tokens to collect: x, y, z, line id. Clearing a whole line pays a bonus. */
+  tokens: number[][]; tokenLines: number;
 }
 
 export function topAt(s: Solid, x: number, z: number): number {
@@ -274,7 +276,7 @@ export function buildLab(): World {
   ];
   return { solids, rails, props, spawns, minX: -X, maxX: X, minZ: -Z, maxZ: Z, kind: 'lab', baseY: 0,
     decor: [], docks: [], trains: [], zones: [], hazards: [], npcs: [], rivets: [], trial: null,
-    env: makeEnv('summer', 'sunny'), path: null, cars: [], towS: 0, fields: [], rides: [], signs: [], trees: [], lamps: [], parked: [], turbine: null };
+    env: makeEnv('summer', 'sunny'), path: null, cars: [], towS: 0, fields: [], rides: [], signs: [], trees: [], lamps: [], parked: [], turbine: null, tokens: [], tokenLines: 0 };
 }
 
 /** Ledge edges become rails automatically (systems, not assets). */

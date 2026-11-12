@@ -59,6 +59,17 @@ button:focus-visible { outline: 3px solid var(--orange); outline-offset: 2px; }
 .hint { margin-top: auto; align-self: center; text-align: center; font-size: 19px; font-weight: 600; color: var(--paper); background: var(--ink); padding: 6px 12px; max-width: 36ch; text-wrap: balance; }
 .hint:empty { display: none; }
 
+.timer { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); background: var(--ink); color: var(--paper); border-top: 5px solid var(--orange);
+  font-family: var(--mono); font-size: 22px; font-weight: 500; font-variant-numeric: tabular-nums; padding: 4px 12px 6px; }
+.timer.late { background: var(--danger); border-top-color: var(--paper); }
+.goals { align-self: flex-start; pointer-events: auto; background: var(--ink); color: var(--paper); padding: 10px 12px; width: min(100%, 330px); max-height: 46vh; overflow-y: auto; touch-action: pan-y; }
+.goals h3 { margin: 0 0 6px; font-size: 14px; font-weight: 600; letter-spacing: 0.14em; text-transform: uppercase; opacity: 0.7; }
+.goals ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 5px; }
+.goals li { display: grid; grid-template-columns: 1fr auto; gap: 2px 10px; font-size: 16px; font-weight: 500; line-height: 1.15; }
+.goals li span { font-family: var(--mono); font-size: 12px; font-variant-numeric: tabular-nums; opacity: 0.8; align-self: center; }
+.goals li i { grid-column: 1 / -1; height: 3px; background: rgba(248, 249, 251, 0.18); }
+.goals li i b { display: block; height: 100%; background: var(--orange); }
+.goals li.done { opacity: 0.55; } .goals li.done i { display: none; }
 .stats { align-self: flex-start; background: var(--ink); color: var(--paper); padding: 10px 12px; font-family: var(--mono); font-size: 12px; display: grid; grid-template-columns: auto auto; gap: 4px 14px; font-variant-numeric: tabular-nums; }
 .stats dt { opacity: 0.7; } .stats dd { margin: 0; text-align: right; }
 .keys { align-self: flex-start; font-family: var(--mono); font-size: 12px; color: var(--ink-soft); background: rgba(248, 249, 251, 0.84); padding: 6px 9px; line-height: 1.6; }
@@ -75,6 +86,7 @@ button:focus-visible { outline: 3px solid var(--orange); outline-offset: 2px; }
 .pads button.jump { grid-column: 1 / -1; height: 72px; font-size: 24px; background: var(--orange); }
 .pads button.down { background: var(--ink); color: var(--paper); }
 .pads button.hot { background: var(--orange); border-width: 2px; }
+@media (max-width: 520px) { .timer { top: auto; bottom: calc(300px + env(safe-area-inset-bottom, 0px)); font-size: 18px; } }
 @media (pointer: coarse) { .stick { display: block; } .pads { display: grid; } .keys { display: none; } .hint { margin-bottom: 214px; } }
 .touch .stick { display: block; } .touch .pads { display: grid; } .touch .keys { display: none; } .touch .hint { margin-bottom: 214px; }
 
@@ -97,6 +109,13 @@ button:focus-visible { outline: 3px solid var(--orange); outline-offset: 2px; }
 .blurb { margin: 0; font-size: 19px; font-weight: 500; line-height: 1.25; min-height: 3.75em; text-wrap: pretty; }
 .play { font-size: 26px; font-weight: 700; padding: 14px; background: var(--orange); color: var(--ink); border: 0; }
 .play:hover { filter: brightness(1.08); }
+.starts { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.starts .alt { background: var(--paper); }
+.bestline { margin: -6px 0 0; font-family: var(--mono); font-size: 12px; opacity: 0.8; min-height: 1.4em; }
+.result .big { font-family: var(--mono); font-size: clamp(40px, 13vw, 60px); font-weight: 500; line-height: 1; font-variant-numeric: tabular-nums; }
+.result .medal { font-size: 24px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--orange); min-height: 1.1em; }
+.result dl { margin: 0; display: grid; grid-template-columns: 1fr auto; gap: 4px 14px; font-family: var(--mono); font-size: 13px; }
+.result dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; } .result dt { opacity: 0.75; }
 .fine { margin: 0; font-family: var(--mono); font-size: 11px; line-height: 1.5; opacity: 0.7; }
 @media (max-width: 420px) { .seasons, .weathers { grid-template-columns: repeat(2, 1fr); } .blurb { min-height: 0; } }
 
@@ -120,11 +139,14 @@ button:focus-visible { outline: 3px solid var(--orange); outline-offset: 2px; }
     <div class="lines" id="lines">
       <button type="button" id="menuBtn">Seasons</button>
       <button type="button" id="placesBtn" aria-expanded="false">Places</button>
+      <button type="button" id="goalsBtn" aria-expanded="false">Goals</button>
       <button type="button" id="gfxBtn" class="quiet">Graphics: High</button>
       <button type="button" id="statsBtn" class="quiet" aria-expanded="false">Stats</button>
       <button type="button" id="muteBtn" class="quiet" aria-pressed="false">Sound on</button>
     </div>
     <div class="places" id="places" hidden></div>
+    <div class="goals" id="goals" hidden><h3>Goals</h3><ul id="goalList"></ul></div>
+    <div class="timer" id="timer" hidden>2:00</div>
     <dl class="stats" id="stats" hidden>
       <dt>fps median / 1% low</dt><dd id="sFps">–</dd>
       <dt>draw</dt><dd id="sDraw">–</dd>
@@ -165,8 +187,31 @@ button:focus-visible { outline: 3px solid var(--orange); outline-offset: 2px; }
         <button type="button" id="wSnowy" data-weather="snowy" aria-pressed="false">Snowy</button>
       </div>
       <p class="blurb" id="blurb"></p>
-      <button type="button" class="play" id="play">Play</button>
+      <div class="starts">
+        <button type="button" class="play" id="play">Free skate</button>
+        <button type="button" class="play alt" id="runBtn">2-minute run</button>
+      </div>
+      <p class="bestline" id="bestline"></p>
       <p class="fine">Keyboard, gamepad or touch. A fan-made, stylized neighborhood; places are approximate and nothing here is affiliated with the businesses named.</p>
+    </div>
+  </div>
+  <div class="menu" id="result" hidden>
+    <div class="card result">
+      <h2>Two-minute run</h2>
+      <div class="big" id="rScore">0</div>
+      <div class="medal" id="rMedal"></div>
+      <dl>
+        <dt>Best combo</dt><dd id="rCombo">0</dd>
+        <dt>Tricks landed</dt><dd id="rTricks">0</dd>
+        <dt>T tokens · lines cleared</dt><dd id="rTokens">0</dd>
+        <dt>Bails</dt><dd id="rBails">0</dd>
+        <dt>Your best this season</dt><dd id="rBest">0</dd>
+      </dl>
+      <div class="starts">
+        <button type="button" class="play" id="rAgain">Run it back</button>
+        <button type="button" class="play alt" id="rFree">Free skate</button>
+      </div>
+      <p class="fine" id="rNext"></p>
     </div>
   </div>
   <div class="fail" id="fail" hidden></div>

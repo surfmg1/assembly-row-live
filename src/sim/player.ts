@@ -22,7 +22,8 @@ export const noInput = (): Input => ({ mx: 0, mz: 0, jump: false, crouch: false,
 export type EvType = 'jump' | 'land' | 'vault' | 'mantle' | 'wallrun' | 'walljump' | 'slide' | 'grindStart'
   | 'grindEnd' | 'trick' | 'bank' | 'bail' | 'respawn' | 'switch' | 'hopOn' | 'hopOff' | 'bobsled' | 'ram'
   | 'impact' | 'step' | 'trickStart' | 'splash' | 'train' | 'zap' | 'rivet' | 'finish' | 'trialStart' | 'busted' | 'goose' | 'bump' | 'deny' | 'dock'
-  | 'horn' | 'honk' | 'carHit' | 'closeCall' | 'rope' | 'ropeOff' | 'lap' | 'sling' | 'puff' | 'mow' | 'fieldDone' | 'ride' | 'rideOff' | 'soft' | 'launch';
+  | 'horn' | 'honk' | 'carHit' | 'closeCall' | 'rope' | 'ropeOff' | 'lap' | 'sling' | 'puff' | 'mow' | 'fieldDone' | 'ride' | 'rideOff' | 'soft' | 'launch'
+  | 'token' | 'line' | 'runEnd' | 'runTick';
 export interface Ev { type: EvType; v: number; name?: string; surf?: Surf; }
 
 export interface Prop {
@@ -56,7 +57,29 @@ export interface Player {
   npcs: Npc[]; rivets: boolean[]; rivetN: number; trialT: number; trialArmed: boolean; trialBest: number;
   cars: Car[]; tow: Tow; rides: Ride[]; ride: number; dsp: number; edge: boolean; inv: number;
   fields: Uint8Array[]; fieldN: number; fieldTotal: number; fieldMile: number;
+  /** T tokens: seconds until each one is back (0 = there to collect), and how many are left in each line */
+  tokens: Float32Array; lineLeft: Int16Array;
+  /** timed run: seconds left (-1 when free skating) and the score it started from */
+  runT: number; run0: number;
+  st: Stats;
 }
+
+/** Counters that goals and the end-of-run card read. They survive warps and bails. */
+export interface Stats {
+  tricks: number; streak: number; streakBest: number; grind: number; close: number; sling: number; soft: number;
+  tokens: number; lines: number; laps: number; air: number; walls: number;
+}
+export const makeStats = (): Stats => ({ tricks: 0, streak: 0, streakBest: 0, grind: 0, close: 0, sling: 0, soft: 0, tokens: 0, lines: 0, laps: 0, air: 0, walls: 0 });
+function resetTokens(w: World, p: Player) {
+  p.tokens = new Float32Array(w.tokens.length); p.lineLeft = new Int16Array(w.tokenLines);
+  for (const t of w.tokens) p.lineLeft[t[3]]++;
+}
+/** Start a timed run: the clock, a clean score and every token back in place. */
+export function startRun(w: World, p: Player, secs: number) {
+  p.score = 0; p.best = 0; p.lastBank = 0; p.bails = 0; p.comboPts = 0; p.comboN = 0; p.comboNames = []; p.st = makeStats();
+  resetTokens(w, p); p.runT = secs; p.run0 = 0;
+}
+export function endRun(p: Player) { p.runT = -1; }
 
 /** A vehicle the player can climb onto: a ride-on mower in the warm seasons, a plow in the snow. */
 export interface Ride { kind: 'mower' | 'plow'; x: number; z: number; yaw: number; hx: number; hz: number; hyaw: number; }
@@ -73,7 +96,7 @@ export function makeProps(w: World): Prop[] {
 
 export function makePlayer(w: World, spawn = 0): Player {
   const s = w.spawns[spawn];
-  return {
+  const p: Player = {
     x: s.x, y: s.y, z: s.z, vx: 0, vy: 0, vz: 0, yaw: s.yaw, mode: s.mode, cartRide: false, grounded: true, surf: 'concrete',
     state: 'normal', stateT: 0, coyote: 0, jumpBuf: 0, jumping: false, lastRate: 0, airT: 0,
     flow: 0, flowIdle: 0, slideCd: 0, vaultT: 0,
@@ -89,7 +112,10 @@ export function makePlayer(w: World, spawn = 0): Player {
     npcs: makeNpcs(w), rivets: w.rivets.map(() => false), rivetN: 0, trialT: -1, trialArmed: false, trialBest: 0,
     cars: makeCars(w), tow: makeTow(), rides: makeRides(w), ride: -1, dsp: 0, edge: false, inv: 0,
     fields: makeFields(w), fieldN: 0, fieldTotal: fieldTotal(w), fieldMile: 0,
+    tokens: new Float32Array(0), lineLeft: new Int16Array(0), runT: -1, run0: 0, st: makeStats(),
   };
+  resetTokens(w, p);
+  return p;
 }
 
 /** Move to a spawn point. Clears motion but keeps score and session clock. */
@@ -111,6 +137,7 @@ export function rebind(w: World, p: Player) {
   if (p.mode === 'drive') p.mode = 'foot';
   p.ride = -1; p.dsp = 0; p.edge = false; p.fields = makeFields(w); p.fieldN = 0; p.fieldTotal = fieldTotal(w); p.fieldMile = 0;
   if (p.rivets.length !== w.rivets.length) { p.rivets = w.rivets.map(() => false); p.rivetN = 0; }
+  resetTokens(w, p);
   if (p.state !== 'bail') { p.state = 'normal'; p.stateT = 0; }
   p.rail = -1; p.trickT = 0;
   if (p.mode !== 'kayak') { p.y = Math.max(p.y, ground(w, p.x, p.z, p.y + 3).y) + 0.05; p.grounded = false; }
@@ -158,6 +185,10 @@ let lastImpact = 0;
 const impactOf = (_p: Player) => -lastImpact;
 
 function addTrick(p: Player, ev: Ev[], name: string, pts: number) {
+  // Variety pays: the same trick again in one combo is worth less each time.
+  let rep = 0; for (let i = 0; i < p.comboNames.length; i++) if (p.comboNames[i] === name) rep++;
+  if (rep) pts = Math.round(pts * (rep === 1 ? 0.7 : rep === 2 ? 0.45 : 0.25));
+  p.st.tricks++; p.st.streak++; if (p.st.streak > p.st.streakBest) p.st.streakBest = p.st.streak;
   p.comboPts += pts; p.comboN++; p.comboLand = 0;
   p.comboNames.push(name); if (p.comboNames.length > 4) p.comboNames.shift();
   p.flow = Math.min(1, p.flow + 0.18); p.flowIdle = 0;
@@ -170,7 +201,7 @@ function bail(p: Player, ev: Ev[]) {
   const sp = Math.hypot(p.vx, p.vz);
   if (p.mode === 'drive') dropRide(p, p.surf === 'water');
   p.tow.rope = false; p.edge = false;
-  p.state = 'bail'; p.stateT = 0; p.trickT = 0; p.rail = -1; p.bails++;
+  p.state = 'bail'; p.stateT = 0; p.trickT = 0; p.rail = -1; p.bails++; p.st.streak = 0;
   p.comboPts = 0; p.comboN = 0; p.comboNames = []; p.flow = 0;
   p.rag.x = p.x; p.rag.y = p.y + 0.9; p.rag.z = p.z;
   p.rag.vx = p.vx * 0.8; p.rag.vz = p.vz * 0.8; p.rag.vy = Math.max(p.vy, 0) + 4.5;
@@ -240,7 +271,7 @@ function stepGrind(w: World, p: Player, inp: Input, dt: number, ev: Ev[]) {
   p.x = r.ax + dx * t; p.y = r.ay + dy * t; p.z = r.az + dz * t;
   p.vx = ux * p.railS; p.vy = uy * p.railS; p.vz = uz * p.railS;
   p.yaw = Math.atan2(p.vz, p.vx);
-  p.stateT += dt; p.grindPts += dt * 120; p.flowIdle = 0;
+  p.stateT += dt; p.grindPts += dt * 120; p.flowIdle = 0; p.st.grind += dt;
   if (p.jumpBuf > 0) { p.jumpBuf = 0; leaveRail(p, ev, 5.6); ev.push({ type: 'jump', v: 1 }); }
   else if (p.railT <= 0 || p.railT >= 1) leaveRail(p, ev, 1.5);
   else if (Math.abs(p.railS) < 1) leaveRail(p, ev, 1.0);
@@ -286,7 +317,7 @@ function stepProps(w: World, p: Player, dt: number, ev: Ev[]) {
       const dx = q.x - p.x, dz = q.z - p.z;
       if (dx * dx + dz * dz > 1.1 || Math.abs(q.y - p.y) > 1.6) continue;
       q.gone = 30; p.vx *= 0.96; p.vz *= 0.96;
-      addTrick(p, ev, q.kind === 'leaves' ? 'Leaf pile' : 'Snowman', q.kind === 'leaves' ? 25 : 40);
+      addTrick(p, ev, q.kind === 'leaves' ? 'Leaf pile' : 'Snowman', q.kind === 'leaves' ? 25 : 40); p.st.soft++;
       ev.push({ type: 'soft', v: i, name: q.kind });
       continue;
     }
@@ -431,7 +462,7 @@ function wheelControl(w: World, p: Player, inp: Input, ix: number, iz: number, m
     if (rot !== 0) { const c = Math.cos(rot), s = Math.sin(rot); const nx = hx * c - hz * s; hz = hx * s + hz * c; hx = nx; }
     // On the bungee, crouching digs an edge in: a hard brake that stretches the cord for a slingshot.
     const dig = towed && skate && inp.crouch && sp > 2;
-    if (p.edge && !dig && p.tow.stretch > 2.2 && p.tow.slingCd <= 0) { p.tow.slingCd = 2.5; addTrick(p, ev, 'Slingshot', 60); ev.push({ type: 'sling', v: p.tow.stretch }); }
+    if (p.edge && !dig && p.tow.stretch > 2.2 && p.tow.slingCd <= 0) { p.tow.slingCd = 2.5; p.st.sling++; addTrick(p, ev, 'Slingshot', 60); ev.push({ type: 'sling', v: p.tow.stretch }); }
     p.edge = dig;
     const fr = dig ? 22 : skate ? (p.state === 'manual' ? 0.3 : snowy ? 0.22 : 0.7 * slick) : riding ? (inp.crouch ? 0.2 : 0.5 * slick) : (mag > 0 ? 0.8 : 5);
     sp = Math.max(0, sp - (fr + 0.006 * sp * sp) * dt);
@@ -474,6 +505,14 @@ function wheelControl(w: World, p: Player, inp: Input, ix: number, iz: number, m
 
 export function step(w: World, p: Player, inp: Input, dt: number, ev: Ev[]) {
   p.time += dt;
+  if (p.runT >= 0) {
+    const was = p.runT; p.runT -= dt;
+    if (p.runT <= 0) {
+      // Time. Whatever combo is in hand is banked as it stands.
+      if (p.comboN > 0 && p.state !== 'bail') { const total = p.comboPts * p.comboN; p.score += total; if (total > p.best) p.best = total; p.comboPts = 0; p.comboN = 0; p.comboNames = []; }
+      p.runT = -1; ev.push({ type: 'runEnd', v: p.score - p.run0 });
+    } else if (p.runT <= 10 && Math.floor(was) !== Math.floor(p.runT)) ev.push({ type: 'runTick', v: Math.ceil(p.runT) });
+  }
   const jumpPressed = inp.jump && !p.pj, crouchPressed = inp.crouch && !p.pc, trickPressed = inp.trick && !p.pt;
   const switchPressed = inp.switchMode && !p.ps, bailPressed = inp.bail && !p.pb;
   p.pj = inp.jump; p.pc = inp.crouch; p.pt = inp.trick; p.ps = inp.switchMode; p.pb = inp.bail;
@@ -554,7 +593,7 @@ export function step(w: World, p: Player, inp: Input, dt: number, ev: Ev[]) {
       p.vx += dx * a * dt; p.vz += dz * a * dt;
     }
     p.tow.dist += t.v * dt;
-    if (w.path && p.tow.dist >= (p.tow.laps + 1) * w.path.len) { p.tow.laps++; p.score += 300 * p.tow.laps; ev.push({ type: 'lap', v: p.tow.laps }); }
+    if (w.path && p.tow.dist >= (p.tow.laps + 1) * w.path.len) { p.tow.laps++; p.st.laps++; p.score += 300 * p.tow.laps; ev.push({ type: 'lap', v: p.tow.laps }); }
     if (st > 17) { p.tow.rope = false; p.edge = false; ev.push({ type: 'ropeOff', v: 1 }); }
   } else p.tow.stretch = 0;
 
@@ -714,7 +753,7 @@ function cityStep(w: World, p: Player, dt: number, ev: Ev[]): boolean {
         ev.push({ type: 'carHit', v: k.rel, name: c.kind }); bail(p, ev); return true;
       }
     } else if (k.near && k.rel > 7 && c.ccd <= 0 && i !== 0 && p.mode !== 'drive' && p.mode !== 'kayak') {
-      c.ccd = 5; addTrick(p, ev, c.kind === 'plow' ? 'Plow dodge' : 'Close call', c.kind === 'plow' ? 120 : 75); ev.push({ type: 'closeCall', v: k.rel });
+      c.ccd = 5; p.st.close++; addTrick(p, ev, c.kind === 'plow' ? 'Plow dodge' : 'Close call', c.kind === 'plow' ? 120 : 75); ev.push({ type: 'closeCall', v: k.rel });
     }
   }
   if (p.tow.active && !p.tow.rope && p.cars.length) {
@@ -730,6 +769,16 @@ function cityStep(w: World, p: Player, dt: number, ev: Ev[]): boolean {
     if (Math.abs(p.x - r[0]) < 1.5 && Math.abs(p.z - r[2]) < 1.5 && Math.abs(p.y + 0.9 - r[1]) < 1.9) {
       p.rivets[i] = true; p.rivetN++; p.score += 500; ev.push({ type: 'rivet', v: p.rivetN });
     }
+  }
+  // T tokens: ride through one to take it. A whole line pays a bonus, then the line comes back later.
+  const tk = w.tokens, reach = p.mode === 'drive' ? 2.2 : 1.5;
+  for (let i = 0; i < tk.length; i++) {
+    if (p.tokens[i] > 0) { if (p.runT < 0) { p.tokens[i] -= dt; if (p.tokens[i] <= 0) { p.tokens[i] = 0; p.lineLeft[tk[i][3]]++; } } continue; }
+    const t = tk[i];
+    if (Math.abs(p.x - t[0]) > reach || Math.abs(p.z - t[2]) > reach || Math.abs(p.y + 0.9 - t[1]) > 1.9) continue;
+    p.tokens[i] = 75; p.st.tokens++; p.score += 50; p.flow = Math.min(1, p.flow + 0.06); p.flowIdle = 0;
+    ev.push({ type: 'token', v: i });
+    if (--p.lineLeft[t[3]] === 0) { p.st.lines++; p.score += 500; ev.push({ type: 'line', v: 500 }); }
   }
   const tr = w.trial;
   if (tr) {
@@ -781,7 +830,7 @@ function tryWallrun(w: World, p: Player, ev: Ev[]) {
   p.x = tmp.x - probe.nx * 0.23; p.z = tmp.z - probe.nz * 0.23;
   p.state = 'wallrun'; p.stateT = 0; p.wallNx = probe.nx; p.wallNz = probe.nz; p.wallTouch = true;
   p.vy = Math.min(Math.max(p.vy, 2.2), 3.5); p.trickT = 0; p.wallUsed = true;
-  addTrick(p, ev, 'Wall run', 80); ev.push({ type: 'wallrun', v: full });
+  p.st.walls++; addTrick(p, ev, 'Wall run', 80); ev.push({ type: 'wallrun', v: full });
 }
 
 /** React to a wall contact. Returns true if the step should end (bail). */
@@ -850,7 +899,7 @@ function resolveGround(w: World, p: Player, inp: Input, prevY: number, h: number
     }
     return;
   }
-  p.airT += h;
+  p.airT += h; if (p.airT > p.st.air) p.st.air = p.airT;
   const g = ground(w, p.x, p.z, Math.max(prevY, p.y) + 0.12);
   if (p.vy <= 0 && p.y <= g.y) {
     const impact = -p.vy; lastImpact = impact;

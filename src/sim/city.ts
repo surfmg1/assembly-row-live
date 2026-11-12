@@ -3,7 +3,7 @@
 // the Marketplace lot west. The world is rebuilt whenever the season or weather changes.
 import {
   World, Solid, Rail, PropSeed, Spawn, Decor, NpcSeed, Zone, Env, SignSeed, TreeSeed, ParkedSeed, CarSeed, FieldSeed, RideSeed,
-  edgeRails, buildLoop, pathAt, pathNearest, makeEnv, PathPos,
+  edgeRails, buildLoop, pathAt, pathNearest, makeEnv, PathPos, ground,
 } from './world';
 
 /** Render material ids, shared with the shader. */
@@ -364,9 +364,39 @@ export function buildCity(env: Env = makeEnv('summer', 'sunny')): World {
     [gx + 1.6, 6.9, gz], [0, 6.2, -98], [46, 11.5, 30], [-74, 3.9, 115], [98, 2.1, 147], [100, 6.5, 84], [160, 1, 60], [166, 1.3, -240], [80, 1, -306], [60, 0.6, -216],
     [-457, 1, -160], [-238, 1, -172], [-140, snow ? 5.8 : 1, 40], [-66, 1, 96], [0, 1, -170], [0, 1, -142], [-44, 1.1, 168.6], [52, 1.1, 205], [-176, 1, -70], [-340, 1, -141],
   ];
-  return {
+  const world: World = {
     solids, rails, props, spawns, minX: -520, maxX: 300, minZ: -340, maxZ: 260, kind: 'city', baseY: W,
     decor, docks, trains, zones, hazards, npcs, rivets, trial: { sx: 72, sz: 84, fx: -449, fz: -182, r: 11 },
-    env, path, cars, towS, fields, rides, signs, trees, lamps, parked, turbine: [350, 84, -58.4],
+    env, path, cars, towS, fields, rides, signs, trees, lamps, parked, turbine: [350, 84, -58.4], tokens: [], tokenLines: 0,
   };
+
+  // --- T tokens: lines to follow. Each line is a route worth riding in its own right. -------------
+  const tokens = world.tokens; let line = 0;
+  const tok = (x: number, z: number, lift = 1.0, top = 40) => {
+    const g = ground(world, x, z, top); if (g.s && g.s.hide) return;
+    tokens.push([x, Math.max(g.y, W) + lift, z, line]);
+  };
+  const run = (x0: number, z0: number, x1: number, z1: number, n: number, lift = 1.0, top = 40) => {
+    const before = tokens.length;
+    for (let i = 0; i < n; i++) { const t = n > 1 ? i / (n - 1) : 0; tok(x0 + (x1 - x0) * t, z0 + (z1 - z0) * t, lift, top); }
+    if (tokens.length > before) line++;
+  };
+  // The bungee loop: a slalom down each straight, in the tow truck's lane.
+  for (let side = 0; side < 4; side++) {
+    const before = tokens.length, s0 = towS + 30 + side * (L / 4);
+    for (let k = 0; k < 9; k++) { pathAt(path, s0 + k * 11, 5.0 + (k % 2 ? 2.6 : -2.2), tp); if (!tp.corner) tok(tp.x, tp.z); }
+    if (tokens.length > before) line++;
+  }
+  run(70, 84, 60, 84, 3, 1.0, 8); run(52, 87, 14, 87, 7);                      // down the station ramp and along the paseo
+  run(-2.5, -50, -2.5, -12, 6); run(2.5, 12, 2.5, 54, 6); run(-2.5, 84, -2.5, 144, 7);   // Assembly Row, block by block
+  run(33, 16, 33, 56, 6, 1.0, 12); run(40, 12, 54, 12, 4, 1.0, 12);            // the garage ramp and its roof
+  run(-46, 114.5, -34, 114.5, 4, 1.7, 3); run(-64, 113.5, -51, 113.5, 4, 1.9, 3);   // Club Volo rail and ledges
+  run(34.5, -167.6, 68.5, -167.6, 6, 1.5, 2); run(-70, -170.5, -20, -170.5, 7);    // riverfront benches and path
+  run(-16, -146, 16, -146, 5); run(-16, -139, 16, -139, 3, 1.0, 12);             // under the Ford frames, and along their tops
+  run(-142, 56, -142, 20, 5, snow ? 1.2 : 1.0, 8); run(-142, -20, -142, -64, 5);    // the Marketplace lot
+  run(140, -120, 140, -40, 6); run(142, 60, 142, 180, 7);                        // Draw Seven Park path
+  run(40, -226, -200, -226, 9, 0.9, 1); run(-260, -222, -430, -196, 7, 0.9, 1);     // the river, by kayak
+  run(-440, -141, -280, -141, 7);                                                // Shore Drive to the boathouse
+  world.tokenLines = line;
+  return world;
 }
