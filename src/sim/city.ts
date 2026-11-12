@@ -37,9 +37,26 @@ export function buildCity(env: Env = makeEnv('summer', 'sunny')): World {
   const bld = (x0: number, x1: number, z0: number, z1: number, h: number, color: number[], mat = M.FACADE, y0 = 0.1) => box(x0, x1, y0, h, z0, z1, color, mat);
   const OSMSTYLE: Record<string, [number[], number]> = { apartments: [BRICK, M.BRICK], office: [TAN, M.FACADE], hotel: [[0.62, 0.68, 0.76], M.GLASS], parking: [[0.58, 0.60, 0.63], M.PAVE], retail: [WHITE, M.FACADE], other: [WHITE, M.FACADE] };
   const OSMTINT = [ORANGEBRICK, BRICK, CHAR];
+  const AWNING = [[0.16, 0.30, 0.22], [0.55, 0.14, 0.14], [0.14, 0.22, 0.38], [0.82, 0.66, 0.30]];
   /** Footprints traced from OpenStreetMap (Map data © OpenStreetMap contributors, ODbL). */
   const osmBlds = (nums: number[]) => { for (const [x0, x1, z0, z1, h, kind, no] of OSM_BUILDINGS) if (nums.includes(no)) {
     const [col, mat] = OSMSTYLE[kind]; bld(x0, x1, z0, z1, h, kind === 'apartments' ? OSMTINT[no % 3] : col, mat);
+    const w = x1 - x0, d = z1 - z0; if (w < 6 || d < 6) continue;
+    // Roof cornice, rooftop plant and a ground-floor awning, so a block reads as a building and not a box.
+    const trim = [Math.min(1, col[0] + 0.18), Math.min(1, col[1] + 0.18), Math.min(1, col[2] + 0.18)];
+    dec(x0 - 0.25, x1 + 0.25, h - 0.7, h + 0.3, z0 - 0.25, z1 + 0.25, kind === 'parking' ? [0.7, 0.7, 0.68] : trim, M.PLAIN);
+    if (kind !== 'parking' && h > 12 && w * d > 500) {
+      const r = (n: number) => { const t = Math.sin((x0 * 12.9898 + z0 * 78.233 + n * 37.719) * 43758.5453); return t - Math.floor(t); };
+      for (let i = 0; i < 3; i++) {
+        const ux = x0 + 3 + r(i) * Math.max(0, w - 10), uz = z0 + 3 + r(i + 5) * Math.max(0, d - 10), uw = 2 + r(i + 9) * 3, ud = 2 + r(i + 13) * 3;
+        dec(ux, ux + uw, h + 0.3, h + 1.8 + r(i + 17), uz, uz + ud, [0.58, 0.60, 0.62], M.METAL);
+      }
+      dec(x0 + 2, x0 + 2 + Math.min(10, w - 4), h + 0.3, h + 3.6, z0 + 2, z0 + 2 + Math.min(8, d - 4), [0.74, 0.74, 0.72], M.PLAIN);
+    }
+    if (kind !== 'parking' && h > 9) {
+      const aw = AWNING[no % AWNING.length];
+      if (w > 14) { dec(x0 + 1, x1 - 1, 3.5, 3.7, z0 - 1.3, z0, aw, M.PLAIN); dec(x0 + 1, x1 - 1, 3.5, 3.7, z1, z1 + 1.3, aw, M.PLAIN); }
+    }
   } };
   const pod = (x0: number, x1: number, z0: number, z1: number) => box(x0, x1, 0, 0.1, z0, z1, PAVE, M.PAVE);
   const zone = (name: string, x0: number, x1: number, z0: number, z1: number) => zones.push({ name, x0, x1, z0, z1 });
@@ -82,6 +99,11 @@ export function buildCity(env: Env = makeEnv('summer', 'sunny')): World {
   pod(-82, -8, 80, 150); pod(8, 85, 80, 150);
   pod(-82, -8, 168, 256); pod(8, 85, 168, 256);
   pod(74, 85, -131, 62);
+  // Zebra crossings over Assembly Row, stop lines and manholes.
+  for (const cz of [-114.5, -54, -68.8, -8, 8, 60, 80, 150, 166]) {
+    for (let x = -6.5; x <= 6.6; x += 1.0) dec(x - 0.25, x + 0.25, 0.015, 0.04, cz - 1.4, cz + 1.4, WHITE, M.PLAIN);
+  }
+  for (const [mx, mz] of [[-3, -40], [3, 25], [-2, 110], [3, 200], [-3, -90], [60, -30], [-88, 40], [-88, 120]]) dec(mx - 0.45, mx + 0.45, 0.012, 0.035, mz - 0.45, mz + 0.45, [0.16, 0.16, 0.17], M.METAL);
 
   // Row A, west: brick courtyard apartments, restaurant on the park corner.
   osmBlds([5, 11]);

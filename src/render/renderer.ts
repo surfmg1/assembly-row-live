@@ -128,7 +128,29 @@ const FRAG_BODY = `
     vec3 glass = vec3( 0.025, 0.03, 0.035 ) + vec3( 0.03, 0.025, 0.02 ) * h21( cell ); float gm = 0.15;
   #endif
     if ( shop ) glass += vec3( 0.07, 0.05, 0.03 );
-    base = mix( wall, glass, win ); rough = mix( 0.82, 0.05, win ); metal = mix( 0.0, gm, win );
+  #if MATID == 9
+    glass += vec3( 0.0, 0.02, 0.03 ) * h21( cell + 1.7 ) + vec3( 0.03, 0.05, 0.08 ) * smoothstep( 0.0, 70.0, v );
+  #else
+    {
+      // Interiors: blinds drawn part way down, lighter sky reflection higher up.
+      float blind = step( 0.45, h21( cell + 3.1 ) ) * ( 0.25 + 0.6 * h21( cell + 9.7 ) );
+      float inW = shop ? 0.0 : step( 1.0 - blind, 1.0 - ( fract( ( v - 4.3 ) / 3.5 ) - 0.22 ) / 0.58 );
+      glass = mix( glass + vec3( 0.04, 0.06, 0.09 ) * smoothstep( 4.0, 40.0, v ), vec3( 0.46, 0.43, 0.38 ) * ( 0.5 + 0.5 * h21( cell + 5.5 ) ), inW * 0.9 );
+    }
+  #endif
+    base = mix( wall, glass, win );
+  #if MATID != 9
+    {
+      // Window trim: pale frame ring and a sill under each opening.
+      vec2 ff = shop ? vec2( fract( u / 4.0 ), v / 4.3 ) : vec2( fract( u / 3.2 ), fract( ( v - 4.3 ) / 3.5 ) );
+      float ring = boxm( ff, shop ? vec2( 0.04, 0.09 ) : vec2( 0.16, 0.18 ), shop ? vec2( 0.96, 0.84 ) : vec2( 0.84, 0.84 ) ) - win;
+      float sill = shop ? 0.0 : boxm( ff, vec2( 0.14, 0.14 ), vec2( 0.86, 0.2 ) );
+      base = mix( base, vec3( 0.80, 0.79, 0.76 ), clamp( ring, 0.0, 1.0 ) * 0.8 + sill * 0.55 * ( 1.0 - win ) );
+      // Dark storefront band and an awning shadow line over the shops.
+      if ( shop ) base *= 1.0 - 0.35 * smoothstep( 3.9, 4.3, v ) * ( 1.0 - win );
+    }
+  #endif
+    rough = mix( 0.82, 0.05, win ); metal = mix( 0.0, gm, win );
     emis = vec3( 1.0, 0.78, 0.52 ) * win * ( shop ? uNight * 1.0 : lit * 1.35 );
     base *= 0.72 + 0.28 * smoothstep( 0.0, 2.5, v );
     h = mix( wh, 0.0, win ); bk = 0.09 * ( 1.0 - far );
