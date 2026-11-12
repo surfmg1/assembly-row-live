@@ -1,6 +1,7 @@
 // Assembly Row, laid out by hand from the owner's reference photos and maps (docs/reference-notes.md).
 // Stylized and somewhat compressed. +x east, +z south; the Mystic is north, the Orange Line east,
 // the Marketplace lot west. The world is rebuilt whenever the season or weather changes.
+import { OSM_BUILDINGS } from './osm-buildings';
 import {
   World, Solid, Rail, PropSeed, Spawn, Decor, NpcSeed, Zone, Env, SignSeed, TreeSeed, ParkedSeed, CarSeed, FieldSeed, RideSeed,
   edgeRails, buildLoop, pathAt, pathNearest, makeEnv, PathPos, ground,
@@ -34,6 +35,12 @@ export function buildCity(env: Env = makeEnv('summer', 'sunny')): World {
   const dec = (x0: number, x1: number, y0: number, y1: number, z0: number, z1: number, color: number[], mat = M.SNOWY) =>
     decor.push({ x0, x1, y0, y1, z0, z1, color, mat });
   const bld = (x0: number, x1: number, z0: number, z1: number, h: number, color: number[], mat = M.FACADE, y0 = 0.1) => box(x0, x1, y0, h, z0, z1, color, mat);
+  const OSMSTYLE: Record<string, [number[], number]> = { apartments: [BRICK, M.BRICK], office: [TAN, M.FACADE], hotel: [[0.62, 0.68, 0.76], M.GLASS], parking: [[0.58, 0.60, 0.63], M.PAVE], retail: [WHITE, M.FACADE], other: [WHITE, M.FACADE] };
+  const OSMTINT = [ORANGEBRICK, BRICK, CHAR];
+  /** Footprints traced from OpenStreetMap (Map data © OpenStreetMap contributors, ODbL). */
+  const osmBlds = (nums: number[]) => { for (const [x0, x1, z0, z1, h, kind, no] of OSM_BUILDINGS) if (nums.includes(no)) {
+    const [col, mat] = OSMSTYLE[kind]; bld(x0, x1, z0, z1, h, kind === 'apartments' ? OSMTINT[no % 3] : col, mat);
+  } };
   const pod = (x0: number, x1: number, z0: number, z1: number) => box(x0, x1, 0, 0.1, z0, z1, PAVE, M.PAVE);
   const zone = (name: string, x0: number, x1: number, z0: number, z1: number) => zones.push({ name, x0, x1, z0, z1 });
   const sign = (text: string, x: number, y: number, z: number, face: 0 | 1 | 2 | 3, h: number, color = '#ffffff', bg?: string, glow = false) =>
@@ -77,14 +84,11 @@ export function buildCity(env: Env = makeEnv('summer', 'sunny')): World {
   pod(74, 85, -131, 62);
 
   // Row A, west: brick courtyard apartments, restaurant on the park corner.
-  bld(-80, -18, -111, -99, 22, BRICK, M.BRICK); bld(-80, -18, -82, -70, 22, BRICK, M.BRICK);
-  bld(-80, -68, -99, -82, 22, ORANGEBRICK, M.BRICK); bld(-30, -18, -99, -82, 22, ORANGEBRICK, M.BRICK);
-  dec(-68, -30, 0.1, 0.16, -99, -82, GRASS, M.GRASS);
-  box(-18, -15.6, 3.3, 3.6, -111, -97, BLACK, M.METAL); sign('EARLS', -17.9, 5.0, -104, 0, 1.3, '#ffffff'); sign('KITCHEN + BAR', -17.9, 4.1, -104, 0, 0.5, '#d8d8d8');
+  osmBlds([5, 11]);
+  box(-14, -11.6, 3.3, 3.6, -105, -91, BLACK, M.METAL); sign('EARLS', -13.9, 5.0, -90, 0, 1.3, '#ffffff'); sign('KITCHEN + BAR', -13.9, 4.1, -90, 0, 0.5, '#d8d8d8');
   // Row A, east: L-shaped white office with a solar roof; café in the nook.
-  bld(18, 54, -111, -95, 20, CREAM); bld(38, 54, -95, -70, 20, CREAM);
-  dec(20, 52, 20, 20.15, -109, -97, SOLAR, M.PLAIN); dec(40, 52, 20, 20.15, -93, -72, SOLAR, M.PLAIN);
-  sign('CAFFÈ NERO', 28, 4.6, -94.9, 2, 0.9, '#ffffff', '#1d3a5c');
+  osmBlds([2]);
+  sign('CAFFÈ NERO', 19, 4.6, -72.9, 2, 0.9, '#ffffff', '#1d3a5c');
   // The pavilion in the split of Assembly Row, with trees and café tables south of it.
   bld(-4, 4, -108, -88, 5, [0.20, 0.22, 0.25], M.GLASS); dec(-4.6, 4.6, 5, 5.3, -108.6, -87.4, CHAR);
   sign('THE COURT', -4.1, 3.9, -98, 1, 0.6, '#ffffff');
@@ -108,12 +112,10 @@ export function buildCity(env: Env = makeEnv('summer', 'sunny')): World {
   [RED, ORANGE, GREEN, BLUE].forEach((c, i) => box(gx + 0.6, gx + 1.4, 3.6 + i * 0.5, 4.1 + i * 0.5, gz - 0.4, gz + 0.4, c, M.PLAIN));
   box(gx + 0.6, gx + 2.6, 5.2, 6.0, gz - 0.5, gz + 0.5, PURPLE, M.PLAIN);
   // Row B, east: dark apartments around two raised courtyards.
-  bld(12.2, 53.8, -53.8, -8.2, 6, CHAR, M.BRICK);
-  bld(12, 54, -54, -46, 20, CHAR, M.BRICK); bld(12, 54, -16, -8, 20, CHAR, M.BRICK); bld(12, 54, -33, -29, 20, CHAR, M.BRICK);
-  bld(12, 20, -46, -16, 20, [0.30, 0.31, 0.35], M.BRICK); bld(46, 54, -46, -16, 20, [0.30, 0.31, 0.35], M.BRICK);
-  dec(20, 46, 6, 6.08, -46, -33, GRASS, M.GRASS); dec(20, 46, 6, 6.08, -29, -16, GRASS, M.GRASS);
+  osmBlds([1]);
 
   // Row C, west: tan gridded office, and an apartment tower over a restaurant.
+  osmBlds([3, 9]);
   bld(-80, -46, 8, 58, 44, TAN); bld(-42, -12, 36, 58, 8, [0.50, 0.47, 0.45], M.BRICK); bld(-42, -12, 8, 36, 58, [0.62, 0.68, 0.76], M.GLASS);
   sign('POSTO', -11.9, 5.2, 47, 0, 1.2, '#ffffff', '#3a1f14');
   // Row C, east: the cinema, a ramp alley, and the garage with a mural on its track side.

@@ -27,3 +27,9 @@ esbuild 0.28.2 (MIT), TypeScript 6.0.3 (Apache-2.0), tsx 4.23.12 (MIT), Playwrig
 | Mapillary imagery | CC BY-SA | No | Is a facade spec written by a vision model a derivative work? |
 | Own capture | Ours | n/a | Faces and plates must be avoided or blurred |
 | Google Maps, Street View, 3D Tiles | **Never used** | n/a | |
+
+## Added with the gameplay / models / real-buildings update
+
+- **Cars, benches, hydrants, street lights**: KayKit *City Builder Bits* by Kay Lousberg, CC0 1.0 (`assets/kaykit-city/LICENSE.txt`). Baked to vertex colours by `tools/models.mjs`.
+- **Kenney Mini Characters** (CC0) were downloaded for evaluation and are not used in the game yet.
+- **Building footprints**: Map data © OpenStreetMap contributors, available under the Open Database License (ODbL), https://www.openstreetmap.org/copyright. Extract in `data/map.osm`; converted by `tools/osm-to-city.mjs` into `src/sim/osm-buildings.ts` (a derived database; the game map is warped and simplified). Keep this credit wherever the game is distributed.

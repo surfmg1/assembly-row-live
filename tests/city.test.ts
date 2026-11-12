@@ -4,7 +4,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { buildCity } from '../src/sim/city';
 import { trainAt, ground, makeEnv, World } from '../src/sim/world';
-import { makePlayer, step, warp, rebind, context, noInput, DT, Ev, Input, Player } from '../src/sim/player';
+import { makePlayer, step, warp, rebind, context, noInput, DT, Ev, Input, Player, startRun } from '../src/sim/player';
 
 const summer = buildCity(makeEnv('summer', 'sunny')), winter = buildCity(makeEnv('winter', 'snowy'));
 const w = summer;
@@ -252,4 +252,24 @@ test('city simulation cost per step', () => {
   const us = (performance.now() - t0) / n * 1000;
   console.log(`    city sim: ${us.toFixed(1)} µs per step (${(us / 16667 * 100).toFixed(2)}% of a 60 fps frame), ${winter.solids.length} solids, ${winter.npcs.length} NPCs, ${p.cars.length} vehicles`);
   assert.ok(us < 3000);
+});
+
+test('T tokens: pickup scores, finishing a line pays a bonus, a timed run ends and reports', () => {
+  const wd = buildCity(makeEnv('summer', 'sunny'));
+  assert.ok(wd.tokens.length >= 100 && wd.tokenLines >= 20);
+  const p = makePlayer(wd, 0), ev: Ev[] = [];
+  const line = wd.tokens[0][3], mine = wd.tokens.filter(t => t[3] === line);
+  p.score = 0;
+  for (const t of mine) {
+    p.x = t[0]; p.y = t[1]; p.z = t[2]; p.vx = p.vy = p.vz = 0;
+    step(wd, p, noInput(), DT, ev);
+  }
+  assert.ok(ev.filter(e => e.type === 'token').length >= mine.length - 0, 'every token on the line is collected');
+  assert.ok(ev.some(e => e.type === 'line'), 'line bonus event');
+  assert.ok(p.score >= mine.length * 50 + 500, `score ${p.score}`);
+  const q = makePlayer(wd, 0), ev2: Ev[] = [];
+  startRun(wd, q, 3);
+  for (let i = 0; i < 60 * 4; i++) step(wd, q, noInput(), DT, ev2);
+  assert.ok(ev2.some(e => e.type === 'runEnd'));
+  assert.ok(ev2.some(e => e.type === 'runTick'));
 });
