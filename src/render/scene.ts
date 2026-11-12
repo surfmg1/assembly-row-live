@@ -4,7 +4,7 @@ import { World, ground, trainAt, TRAIN_HALF } from '../sim/world';
 import { Player, Ride } from '../sim/player';
 import { Car, ROPE } from '../sim/traffic';
 import { M } from '../sim/city';
-import { Instances, G } from './instances';
+import { Instances, G, GM } from './instances';
 import { M4, chain, mul, trans, scale, rotX, rotY, rotZ } from './mat';
 
 const CONCRETE = [0.80, 0.81, 0.83], RAMP = [0.68, 0.70, 0.74], WALL = [0.87, 0.88, 0.90], FLOOR = [0.74, 0.75, 0.78];
@@ -28,17 +28,15 @@ function wheel(out: Instances, root: M4, x: number, y: number, z: number, d: num
   if (hub) out.push(chain(root, trans(x, y, z), rotX(Math.PI / 2), scale(d * 0.55, w + 0.02, d * 0.55)), HUB[0], HUB[1], HUB[2], M.METAL, G.CYL);
 }
 
-/** A passenger car. Local +x is forward. */
-function carModel(out: Instances, m: M4, c: number[], snow = false) {
-  boxAt(out, m, 0, 0.58, 0, 4.4, 0.56, 1.82, c, M.PAINT); boxAt(out, m, 1.55, 0.78, 0, 1.3, 0.22, 1.78, c, M.PAINT); boxAt(out, m, -1.75, 0.82, 0, 0.9, 0.26, 1.78, c, M.PAINT);
-  out.push(chain(m, trans(0.95, 1.12, 0), rotZ(-0.62), scale(0.62, 0.05, 1.56)), GLASSD[0], GLASSD[1], GLASSD[2], M.WINDOW);
-  out.push(chain(m, trans(-1.18, 1.12, 0), rotZ(0.75), scale(0.56, 0.05, 1.56)), GLASSD[0], GLASSD[1], GLASSD[2], M.WINDOW);
-  boxAt(out, m, -0.15, 1.12, 0, 1.75, 0.5, 1.6, GLASSD, M.WINDOW); boxAt(out, m, -0.15, 1.4, 0, 1.85, 0.07, 1.62, c, M.PAINT);
-  for (const z of [-0.81, 0.81]) for (const x of [0.62, -0.85]) boxAt(out, m, x, 1.12, z, 0.07, 0.5, 0.03, c, M.PAINT);
-  for (const x of [-1.38, 1.38]) for (const z of [-0.84, 0.84]) wheel(out, m, x, 0.34, z, 0.68, 0.24);
-  for (const z of [-0.62, 0.62]) { boxAt(out, m, 2.2, 0.68, z, 0.04, 0.14, 0.34, HEAD, M.EMIS); boxAt(out, m, -2.2, 0.76, z, 0.04, 0.12, 0.3, TAIL, M.EMIS); }
-  boxAt(out, m, 2.21, 0.42, 0, 0.06, 0.16, 1.7, DARK, M.PLAIN); boxAt(out, m, -2.21, 0.42, 0, 0.06, 0.16, 1.7, DARK, M.PLAIN);
-  if (snow) { boxAt(out, m, -0.15, 1.5, 0, 1.75, 0.14, 1.52, WHITE, M.SNOWY, G.BOX); boxAt(out, m, 1.6, 0.94, 0, 1.15, 0.1, 1.6, WHITE, M.SNOWY); boxAt(out, m, -1.75, 0.98, 0, 0.8, 0.08, 1.6, WHITE, M.SNOWY); }
+const CAR_BODIES = ['car_sedan', 'car_hatchback', 'car_stationwagon'] as const;
+/** A passenger car from the CC0 KayKit city set. Local +x is forward. `parked` cars take snow cover. */
+function carModel(out: Instances, m: M4, hue: number, parked = false) {
+  const h = Math.abs(Math.round(hue));
+  if (h % 11 === 7) { out.push(m, 1, 1, 1, parked ? M.VCOLS : M.VCOL, GM('car_taxi')); return; }
+  if (h % 13 === 5) { out.push(m, 1, 1, 1, parked ? M.VCOLS : M.VCOL, GM('car_police')); return; }
+  const body = CAR_BODIES[h % 3], c = CARS[h % CARS.length];
+  out.push(m, c[0], c[1], c[2], parked ? M.VPAINTS : M.VPAINT, GM((body + '_paint') as 'car_sedan_paint'));
+  out.push(m, 1, 1, 1, parked ? M.VCOLS : M.VCOL, GM((body + '_trim') as 'car_sedan_trim'));
 }
 function pickupModel(out: Instances, m: M4, c: number[]) {
   boxAt(out, m, 0, 0.8, 0, 5.5, 0.6, 2.0, c, M.PAINT); boxAt(out, m, 1.85, 1.2, 0, 1.8, 0.22, 1.96, c, M.PAINT);
@@ -50,7 +48,7 @@ function pickupModel(out: Instances, m: M4, c: number[]) {
   for (const x of [-1.75, 1.8]) for (const z of [-0.98, 0.98]) wheel(out, m, x, 0.44, z, 0.88, 0.3);
   for (const z of [-0.72, 0.72]) { boxAt(out, m, 2.77, 1.0, z, 0.04, 0.2, 0.32, HEAD, M.EMIS); boxAt(out, m, -2.77, 1.05, z, 0.04, 0.3, 0.16, TAIL, M.EMIS); }
   // the friend at the wheel, arm out the window
-  boxAt(out, m, 0.3, 1.64, -0.45, 0.28, 0.32, 0.26, SKIN, M.PLAIN, G.BLOB); boxAt(out, m, 0.3, 1.8, -0.45, 0.32, 0.12, 0.3, [0.2, 0.5, 0.3]); boxAt(out, m, 0.35, 1.36, -1.0, 0.5, 0.1, 0.12, [0.2, 0.3, 0.5]);
+  boxAt(out, m, 0.3, 1.64, -0.45, 0.26, 0.3, 0.25, SKIN, M.PLAIN, G.SPHERE); boxAt(out, m, 0.3, 1.8, -0.45, 0.32, 0.12, 0.3, [0.2, 0.5, 0.3]); boxAt(out, m, 0.35, 1.36, -1.0, 0.5, 0.1, 0.12, [0.2, 0.3, 0.5]);
 }
 function plowModel(out: Instances, m: M4, t: number, hue: number) {
   const body = hue % 2 ? [0.95, 0.62, 0.08] : [0.92, 0.78, 0.10];
@@ -120,14 +118,10 @@ function streetDetail(cubes: Instances, w: World) {
     if (ns) bx(-97, px, 6.15, 6.35, pz - 0.08, pz + 0.08, DARK, M.METAL); else bx(-7, px, 6.15, 6.35, pz - 0.08, pz + 0.08, DARK, M.METAL);
     for (const hx of ns ? [-88.6, -95.4] : [3.4, -3.4]) bx(hx - 0.22, hx + 0.22, 4.9, 6.15, pz - 0.18, pz + 0.18, [0.1, 0.1, 0.1], M.PLAIN);
   }
-  // Benches facing the river, and a few hydrants.
-  for (const x of [-56, -36, 24, 44, -66]) {
-    const z = -167.6;
-    bx(x - 0.9, x + 0.9, 0.45, 0.5, z - 0.25, z + 0.25, WOODS, M.PLAIN); bx(x - 0.9, x + 0.9, 0.55, 0.95, z - 0.3, z - 0.26, WOODS, M.PLAIN);
-    for (const lx of [-0.75, 0.75]) bx(x + lx - 0.04, x + lx + 0.04, 0.05, 0.95, z - 0.3, z + 0.2, DARK, M.METAL);
-  }
+  // Benches facing the river, and a few hydrants (CC0 KayKit models).
+  for (const x of [-56, -36, 24, 44, -66]) cubes.push(chain(trans(x, 0.05, -167.6), scale(4.6, 1.9, 4.2)), 1, 1, 1, M.VCOLS, GM('bench'));
   for (const [x, z] of [[-83.6, -40], [-83.6, 30], [-7.4, -30], [7.4, 30], [-7.4, 120], [74.6, -40], [-83.6, 110]])
-    { bx(x - 0.16, x + 0.16, 0.1, 0.8, z - 0.16, z + 0.16, [0.80, 0.12, 0.10], M.PAINT, G.CYL); bx(x - 0.12, x + 0.12, 0.8, 0.95, z - 0.12, z + 0.12, [0.80, 0.12, 0.10], M.PAINT, G.BLOB); }
+    cubes.push(chain(trans(x, 0.1, z), rotY(hash(x, z) * 6.28)), 1, 1, 1, M.VCOLS, GM('firehydrant'));
   // Rooftop parapets and mechanical units on every building.
   const solids = w.solids;
   const covered = (x: number, z: number, y: number) => solids.some(s => !s.hide && s.y0 >= y - 0.2 && s.y0 <= y + 0.3 && x > s.x0 - 1 && x < s.x1 + 1 && z > s.z0 - 1 && z < s.z1 + 1);
@@ -189,12 +183,18 @@ export function buildStatic(w: World): { cubes: Instances; wedges: Instances } {
   }
   w.trees.forEach((t, i) => treeModel(cubes, w, t.x, t.z, t.y, t.h, !!t.lights, i));
   const dusk = w.env.weather === 'snowy' || w.env.weather === 'rainy';
+  // Street lights: the arm reaches over the nearest road.
   for (const [x, y, z] of w.lamps) {
-    bx(x - 0.07, x + 0.07, y, y + 4.6, z - 0.07, z + 0.07, DARK, M.METAL, G.CYL); bx(x - 0.17, x + 0.17, y, y + 0.6, z - 0.17, z + 0.17, DARK, M.METAL, G.CYL);
-    bx(x - 0.24, x + 0.24, y + 4.55, y + 5.15, z - 0.24, z + 0.24, dusk ? [1.0, 0.86, 0.62] : [0.92, 0.92, 0.90], dusk ? M.EMIS : M.WINDOW, G.BLOB);
-    bx(x - 0.28, x + 0.28, y + 5.05, y + 5.2, z - 0.28, z + 0.28, DARK, M.METAL, G.CYL);
+    let ax = 0, az = 0, bd = 14;
+    for (const rx of [-92, 0, 66]) if (Math.abs(rx - x) < bd && z > -131 && z < 256) { bd = Math.abs(rx - x); ax = Math.sign(rx - x); az = 0; }
+    for (const rz of [-123, 70, 158]) if (Math.abs(rz - z) < bd && x > -100 && x < 76) { bd = Math.abs(rz - z); ax = 0; az = Math.sign(rz - z); }
+    if (!ax && !az) az = z < -150 ? -1 : 1;
+    // the model's arm points toward -x
+    cubes.push(chain(trans(x, y, z), rotY(Math.atan2(az, -ax))), 1, 1, 1, M.VCOLS, GM('streetlight'));
+    const hx = x + ax * 1.18, hz = z + az * 1.18;
+    bx(hx - 0.2, hx + 0.2, y + 5.02, y + 5.14, hz - 0.2, hz + 0.2, dusk ? [1.0, 0.86, 0.62] : [0.92, 0.92, 0.90], dusk ? M.EMIS : M.WINDOW, G.CYL);
   }
-  for (const c of w.parked) carModel(cubes, chain(trans(c.x, 0, c.z), rotY(-c.yaw)), CARS[Math.abs(Math.round(c.hue)) % CARS.length], w.env.snow);
+  for (const c of w.parked) carModel(cubes, chain(trans(c.x, 0, c.z), rotY(-c.yaw)), c.hue, true);
   // Uncut lawns read a little shaggier and darker until the mower has been over them.
   for (const f of w.fields) if (f.kind === 'lawn') {
     const y = f.z0 > 0 ? 0.16 : 0.05, g = w.env.season === 'fall' ? [0.44, 0.47, 0.22] : [0.30, 0.47, 0.20];
@@ -222,20 +222,49 @@ export function buildField(out: Instances, w: World, p: Player) {
 function part(out: Instances, root: M4, px: number, py: number, pz: number, ang: number, sx: number, len: number, sz: number, c: number[], roll = 0) {
   out.push(chain(root, trans(px, py, pz), rotZ(ang), rotX(roll), trans(0, -len / 2, 0), scale(sx, len, sz)), c[0], c[1], c[2], M.PLAIN, G.CYL);
 }
+/** A two-segment limb hanging from a pivot: a1 and a2 are the absolute swing of the upper and lower segment. Returns the frame at its end. */
+function limb(out: Instances, root: M4, px: number, py: number, pz: number, a1: number, a2: number, l1: number, l2: number, r1: number, r2: number, c1: number[], c2: number[], roll = 0): M4 {
+  const top = chain(root, trans(px, py, pz), rotX(roll), rotZ(a1));
+  out.push(chain(top, trans(0, -l1 / 2, 0), scale(r1 * 4, l1 + r1 * 1.3, r1 * 4)), c1[0], c1[1], c1[2], M.PLAIN, G.CAPS);
+  const low = chain(top, trans(0, -l1, 0), rotZ(a2 - a1));
+  out.push(chain(low, trans(0, -l2 / 2, 0), scale(r2 * 4, l2 + r2 * 1.3, r2 * 4)), c2[0], c2[1], c2[2], M.PLAIN, G.CAPS);
+  return chain(low, trans(0, -l2, 0));
+}
+const SHOE = [0.93, 0.93, 0.90], SOLE = [0.16, 0.16, 0.18];
+/** A leg with a knee. `len` below 1 bends the knee instead of shortening the leg. */
+function leg(out: Instances, root: M4, px: number, py: number, pz: number, ang: number, len: number, pants: number[], shoe = SHOE, roll = 0) {
+  const bend = Math.acos(Math.max(0.5, Math.min(1, len))) + Math.max(0, -ang) * 0.35, L = 0.42;
+  const foot = limb(out, root, px, py, pz, ang + bend, ang - bend - Math.max(0, -ang) * 0.4, L, L, 0.088, 0.07, pants, pants, roll);
+  out.push(chain(foot, trans(0.055, 0.045, 0), scale(0.27, 0.11, 0.125)), shoe[0], shoe[1], shoe[2], M.PLAIN, G.SPHERE);
+}
+/** An arm with an elbow that always bends a little forward, and a hand. */
+function arm(out: Instances, root: M4, px: number, py: number, pz: number, ang: number, sleeve: number[], skin: number[], roll = 0, bendK = 1) {
+  const e = (0.3 + Math.min(0.9, Math.abs(ang) * 0.45)) * bendK;
+  const hand = limb(out, root, px, py, pz, ang, ang + e, 0.3, 0.29, 0.062, 0.05, sleeve, sleeve, roll);
+  out.push(chain(hand, trans(0, -0.02, 0), scale(0.1, 0.12, 0.09)), skin[0], skin[1], skin[2], M.PLAIN, G.SPHERE);
+}
+/** Hips, torso, neck and head, drawn in the frame of the hips. `brim` gives the cap a peak; without it `cap` reads as hair. */
+function torso(out: Instances, up: M4, shirt: number[], pants: number[], cap: number[], skin: number[], brim: boolean, face = true) {
+  out.push(chain(up, trans(0, 0.04, 0), scale(0.46, 0.26, 0.74)), pants[0], pants[1], pants[2], M.PLAIN, G.CAPS);
+  out.push(chain(up, trans(0, 0.36, 0), scale(0.5, 0.66, 0.86)), shirt[0], shirt[1], shirt[2], M.PLAIN, G.CAPS);
+  out.push(chain(up, trans(0, 0.52, 0), scale(0.3, 0.2, 0.92)), shirt[0], shirt[1], shirt[2], M.PLAIN, G.CAPS);
+  boxAt(out, up, 0.01, 0.69, 0, 0.1, 0.1, 0.1, skin, M.PLAIN, G.CYL);
+  boxAt(out, up, 0.02, 0.83, 0, 0.225, 0.25, 0.215, skin, M.PLAIN, G.SPHERE);
+  boxAt(out, up, -0.005, 0.875, 0, 0.245, 0.19, 0.235, cap, M.PLAIN, G.SPHERE);
+  if (brim) boxAt(out, up, 0.14, 0.875, 0, 0.14, 0.022, 0.19, cap, M.PLAIN, G.SPHERE);
+  if (face) for (const z of [-0.048, 0.048]) boxAt(out, up, 0.128, 0.835, z, 0.02, 0.034, 0.03, DARK, M.PLAIN, G.SPHERE);
+}
 
 interface Pose { legL: number; legR: number; armL: number; armR: number; lean: number; legLen: number; twist: number; }
 
-function figure(out: Instances, root: M4, q: Pose, shirt = ORANGE, pants = SLATE, cap = INK, skin = SKIN) {
-  const hip = 0.84 * q.legLen + 0.02;
-  part(out, root, 0, hip, -0.1, q.legL, 0.17, 0.84 * q.legLen, 0.17, pants);
-  part(out, root, 0, hip, 0.1, q.legR, 0.17, 0.84 * q.legLen, 0.17, pants);
+function figure(out: Instances, root: M4, q: Pose, shirt = ORANGE, pants = SLATE, cap = INK, skin = SKIN, brim = false, shoe = SOLE) {
+  const hip = 0.84 * q.legLen + 0.03;
+  leg(out, root, 0, hip, -0.1, q.legL, q.legLen, pants, shoe);
+  leg(out, root, 0, hip, 0.1, q.legR, q.legLen, pants, shoe);
   const up = chain(root, trans(0, hip, 0), rotZ(q.lean), rotY(q.twist));
-  boxAt(out, up, 0, 0.3, 0, 0.26, 0.6, 0.4, shirt, M.PLAIN);
-  boxAt(out, up, 0, 0.62, 0, 0.24, 0.14, 0.38, shirt, M.PLAIN, G.BLOB);
-  boxAt(out, up, 0.02, 0.8, 0, 0.24, 0.29, 0.23, skin, M.PLAIN, G.BLOB);
-  boxAt(out, up, -0.02, 0.9, 0, 0.27, 0.15, 0.26, cap, M.PLAIN, G.BLOB);
-  part(out, up, 0, 0.56, -0.25, q.armL, 0.11, 0.62, 0.11, shirt);
-  part(out, up, 0, 0.56, 0.25, q.armR, 0.11, 0.62, 0.11, shirt);
+  torso(out, up, shirt, pants, cap, skin, brim, brim);
+  arm(out, up, 0, 0.56, -0.26, q.armL, shirt, skin);
+  arm(out, up, 0, 0.56, 0.26, q.armR, shirt, skin);
 }
 
 function board(out: Instances, m: M4, snow: boolean) {
@@ -275,7 +304,7 @@ function drawPlayer(out: Instances, w: World, p: Player, v: View) {
     const r = p.rag;
     const root = chain(trans(r.x, r.y, r.z), rotY(-p.yaw), rotZ(-r.rot), rotX(r.rot * 0.6), trans(0, -0.9, 0));
     const f = Math.sin(r.rot * 2);
-    figure(out, root, { legL: 0.8 + f * 0.5, legR: -0.6 - f * 0.4, armL: 2.4 + f, armR: -2.0 + f, lean: 0.3 * f, legLen: 1, twist: 0.4 * f }, shirt, SLATE, cap);
+    figure(out, root, { legL: 0.8 + f * 0.5, legR: -0.6 - f * 0.4, armL: 2.4 + f, armR: -2.0 + f, lean: 0.3 * f, legLen: 1, twist: 0.4 * f }, shirt, SLATE, cap, SKIN, true, SHOE);
     const here = chain(trans(p.x, v.y, p.z), rotY(-p.yaw));
     if (p.mode === 'skate') board(out, chain(here, trans(0.6, 0.2, 0.3), rotX(Math.PI), rotY(0.7)), snow);
     if (p.mode === 'cart') cart(out, chain(here, trans(0.9, 0.3, 0), rotX(Math.PI / 2), rotY(0.3)), 0);
@@ -284,7 +313,7 @@ function drawPlayer(out: Instances, w: World, p: Player, v: View) {
     if (r.kind === 'plow') plowModel(out, root, p.time, 0);
     else {
       mowerModel(out, root, p.time, true);
-      figure(out, chain(root, trans(-0.42, 0.5, 0)), { legL: 1.35, legR: 1.35, armL: 1.0, armR: 1.0, lean: -0.1, legLen: 0.55, twist: 0 }, shirt, SLATE, cap);
+      figure(out, chain(root, trans(-0.42, 0.5, 0)), { legL: 1.35, legR: 1.35, armL: 1.0, armR: 1.0, lean: -0.1, legLen: 0.55, twist: 0 }, shirt, SLATE, cap, SKIN, true, SHOE);
     }
   } else if (p.mode === 'foot') {
     let root = chain(trans(p.x, v.y, p.z), rotY(-p.yaw));
@@ -298,7 +327,7 @@ function drawPlayer(out: Instances, w: World, p: Player, v: View) {
     else if (p.vaultT > 0) { const t = p.vaultT / 0.28; root = chain(root, trans(0, 0.25 * t, 0), rotZ(-1.0 * t)); pose.armL = pose.armR = 1.3; pose.legL = 0.9; pose.legR = 0.5; }
     else if (air) { pose.legL = 0.75; pose.legR = -0.25; pose.armL = 2.3; pose.armR = 2.0; pose.lean = -0.1; }
     if (trick > 0) { root = chain(root, trans(0, 0.9, 0), rotZ(-Math.PI * 2 * trick), trans(0, -0.9, 0)); pose.legL = pose.legR = 1.2; pose.armL = pose.armR = 0.9; }
-    figure(out, root, pose, shirt, SLATE, cap);
+    figure(out, root, pose, shirt, SLATE, cap, SKIN, true, SHOE);
   } else if (p.mode === 'skate') {
     const root = chain(trans(p.x, v.y, p.z), rotY(-p.yaw));
     const manual = p.state === 'manual';
@@ -312,16 +341,15 @@ function drawPlayer(out: Instances, w: World, p: Player, v: View) {
     const push = p.pushing && p.grounded && !towed ? Math.sin(v.phase * 0.9) : 0;
     const spin = trick > 0 && p.trickName === 'Backside 360' ? rotY(Math.PI * 2 * trick) : rotY(0);
     const body = chain(root, trans(0, (snow ? 0.08 : 0.12) + (trick > 0 ? 0.25 * Math.sin(trick * Math.PI) : 0), 0), spin, rotZ(p.edge ? 0.35 : 0));
-    const hip = 0.84 * crouch + 0.02, st = snow ? 0.25 : 0.17;
-    part(out, body, st, hip, 0, 0.12 + (crouch < 1 ? 0.3 : 0), 0.17, 0.86 * crouch, 0.19, SLATE);
-    part(out, body, -st, hip, 0, -0.12 - (crouch < 1 ? 0.3 : 0) - Math.max(0, push) * 0.9, 0.17, 0.86 * crouch, 0.19, SLATE);
+    const hip = 0.84 * crouch + 0.03, st = snow ? 0.25 : 0.17;
+    leg(out, body, st, hip, 0, 0.1, crouch, SLATE, SHOE, 0.12);
+    leg(out, body, -st, hip, 0, -0.1 - Math.max(0, push) * 0.9, crouch, SLATE, SHOE, -0.12);
     const up = chain(body, trans(0, hip, 0), rotZ(manual ? 0.3 : towed ? 0.12 : -0.12), rotY(towed ? 0.55 : 1.05));
-    boxAt(out, up, 0, 0.3, 0, 0.26, 0.6, 0.4, shirt); boxAt(out, up, 0, 0.62, 0, 0.24, 0.14, 0.38, shirt, M.PLAIN, G.BLOB);
-    boxAt(out, up, 0.02, 0.8, 0, 0.24, 0.29, 0.23, SKIN, M.PLAIN, G.BLOB); boxAt(out, up, -0.02, 0.9, 0, 0.27, 0.15, 0.26, cap, M.PLAIN, G.BLOB);
-    if (towed) { part(out, up, 0.05, 0.54, -0.2, 1.35, 0.11, 0.62, 0.11, shirt, -0.25); part(out, up, 0.05, 0.54, 0.2, 1.35, 0.11, 0.62, 0.11, shirt, 0.6); }
+    torso(out, up, shirt, SLATE, cap, SKIN, true);
+    if (towed) { arm(out, up, 0.05, 0.54, -0.2, 1.35, shirt, SKIN, -0.25, 0.4); arm(out, up, 0.05, 0.54, 0.2, 1.35, shirt, SKIN, 0.6, 0.4); }
     else {
-      const arm = air || manual || p.state === 'grind' ? 1.25 : 0.25;
-      part(out, up, 0, 0.56, -0.25, 0, 0.11, 0.62, 0.11, shirt, arm); part(out, up, 0, 0.56, 0.25, 0, 0.11, 0.62, 0.11, shirt, -arm);
+      const a = air || manual || p.state === 'grind' ? 1.25 : 0.25;
+      arm(out, up, 0, 0.56, -0.26, 0, shirt, SKIN, a, 0.6); arm(out, up, 0, 0.56, 0.26, 0, shirt, SKIN, -a, 0.6);
     }
   } else if (p.mode === 'kayak') {
     const bob = Math.sin(p.time * 2.1) * 0.03;
@@ -329,7 +357,7 @@ function drawPlayer(out: Instances, w: World, p: Player, v: View) {
     const HULL = [0.95, 0.72, 0.12];
     boxAt(out, root, 0, 0.12, 0, 4.4, 0.3, 0.66, HULL, M.PAINT, G.BLOB); boxAt(out, root, -0.1, 0.27, 0, 0.9, 0.05, 0.5, INK, M.PLAIN, G.CYL);
     const stroke = p.pushing ? Math.sin(v.phase * 1.6) : Math.sin(p.time * 0.8) * 0.15;
-    figure(out, chain(root, trans(-0.15, 0.2, 0)), { legL: 1.5, legR: 1.5, armL: 1.1 + stroke * 0.3, armR: 1.1 - stroke * 0.3, lean: -0.12, legLen: 0.5, twist: stroke * 0.35 }, shirt, SLATE, cap);
+    figure(out, chain(root, trans(-0.15, 0.2, 0)), { legL: 1.5, legR: 1.5, armL: 1.1 + stroke * 0.3, armR: 1.1 - stroke * 0.3, lean: -0.12, legLen: 0.5, twist: stroke * 0.35 }, shirt, SLATE, cap, SKIN, true, SHOE);
     const pm = chain(root, trans(0.2, 0.95, 0), rotX(stroke * 0.75), rotY(stroke * 0.3));
     boxAt(out, pm, 0, 0, 0, 0.05, 0.05, 2.3, INK, M.METAL); boxAt(out, pm, 0, 0, 1.2, 0.05, 0.22, 0.42, ORANGE, M.PLAIN, G.BLOB); boxAt(out, pm, 0, 0, -1.2, 0.05, 0.22, 0.42, ORANGE, M.PLAIN, G.BLOB);
   } else {
@@ -339,10 +367,10 @@ function drawPlayer(out: Instances, w: World, p: Player, v: View) {
     if (p.cartRide) {
       const cm = chain(root, trans(0.2, 0, 0), rotY(wob * 0.08));
       cart(out, cm, wob);
-      figure(out, chain(cm, trans(-0.12, 0.36, 0)), { legL: 1.45, legR: 1.3, armL: towed ? 1.4 : 0.9, armR: towed ? 1.4 : 0.9, lean: p.pc ? -0.75 : -0.2, legLen: 0.55, twist: 0 }, shirt, SLATE, cap);
+      figure(out, chain(cm, trans(-0.12, 0.36, 0)), { legL: 1.45, legR: 1.3, armL: towed ? 1.4 : 0.9, armR: towed ? 1.4 : 0.9, lean: p.pc ? -0.75 : -0.2, legLen: 0.55, twist: 0 }, shirt, SLATE, cap, SKIN, true, SHOE);
     } else {
       cart(out, chain(root, trans(0.95, 0, 0)), 0);
-      figure(out, root, { legL: sw * 0.95 * k, legR: -sw * 0.95 * k, armL: 1.15, armR: 1.15, lean: -0.38 * k - 0.08, legLen: 1, twist: 0 }, shirt, SLATE, cap);
+      figure(out, root, { legL: sw * 0.95 * k, legR: -sw * 0.95 * k, armL: 1.15, armR: 1.15, lean: -0.38 * k - 0.08, legLen: 1, twist: 0 }, shirt, SLATE, cap, SKIN, true, SHOE);
     }
   }
 }
@@ -351,7 +379,7 @@ function drawCar(out: Instances, c: Car, t: number) {
   const m = chain(trans(c.x, 0, c.z), rotY(-c.yaw));
   if (c.kind === 'truck') pickupModel(out, m, [0.72, 0.08, 0.07]);
   else if (c.kind === 'plow') plowModel(out, m, t + c.hue, c.hue);
-  else carModel(out, m, CARS[c.hue % CARS.length]);
+  else carModel(out, m, c.hue);
 }
 function drawRide(out: Instances, r: Ride, w: World, t: number) {
   const m = chain(trans(r.x, ground(w, r.x, r.z, 2).y, r.z), rotY(-r.yaw));
@@ -378,7 +406,7 @@ function drawCity(out: Instances, w: World, p: Player, v: View) {
   for (let i = 0; i < 12; i++) {
     const north = i % 2 === 0, x = north ? -244 : -232;
     const z = ((t * (24 + (i % 3) * 3) + i * 97) % 640) - 340;
-    carModel(out, chain(trans(x + (i % 4 < 2 ? 0 : 4), 9.5, north ? -z - 40 : z), rotY(north ? Math.PI / 2 : -Math.PI / 2)), CARS[i % CARS.length]);
+    carModel(out, chain(trans(x + (i % 4 < 2 ? 0 : 4), 9.5, north ? -z - 40 : z), rotY(north ? Math.PI / 2 : -Math.PI / 2)), i);
   }
   // Traffic signals cycle; the lit lamp is the only part that changes.
   SIGNALS.forEach(([x, z], i) => {

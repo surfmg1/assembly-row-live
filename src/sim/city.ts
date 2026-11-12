@@ -7,7 +7,7 @@ import {
 } from './world';
 
 /** Render material ids, shared with the shader. */
-export const M = { PAVE: 0, PLAIN: 1, WATER: 2, FACADE: 3, ASPHALT: 4, GRASS: 5, LEAF: 6, EMIS: 7, BRICK: 8, GLASS: 9, SNOWY: 11, WINDOW: 12, PAINT: 13, METAL: 14, PARTICLE: 15, RAIN: 16 };
+export const M = { PAVE: 0, PLAIN: 1, WATER: 2, FACADE: 3, ASPHALT: 4, GRASS: 5, LEAF: 6, EMIS: 7, BRICK: 8, GLASS: 9, SNOWY: 11, WINDOW: 12, PAINT: 13, METAL: 14, PARTICLE: 15, RAIN: 16, VCOL: 17, VCOLS: 18, VPAINT: 19, VPAINTS: 20 };
 
 const ASPHALT = [0.30, 0.31, 0.34], PAVE = [0.74, 0.73, 0.72], BRICKPAVE = [0.62, 0.42, 0.36], SAND = [0.84, 0.76, 0.58];
 const BRICK = [0.62, 0.30, 0.24], ORANGEBRICK = [0.80, 0.50, 0.30], TAN = [0.80, 0.70, 0.54], CREAM = [0.90, 0.88, 0.82], PANEL = [0.66, 0.69, 0.74];

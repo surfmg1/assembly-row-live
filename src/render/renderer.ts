@@ -13,6 +13,7 @@ import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { Water } from 'three/addons/objects/Water.js';
 import { mergeVertices } from 'three/addons/utils/BufferGeometryUtils.js';
 import { Instances, STRIDE, G } from './instances';
+import { MODELS, MODEL_NAMES } from './models.gen';
 import { makeTextures } from './textures';
 export { Instances } from './instances';
 
@@ -29,8 +30,8 @@ export interface Frame {
 export type Quality = 'high' | 'medium' | 'low';
 
 /** Material ids, matching M in sim/city.ts. */
-const MAT = { PAVE: 0, PLAIN: 1, WATER: 2, FACADE: 3, ASPHALT: 4, GRASS: 5, LEAF: 6, EMIS: 7, BRICK: 8, GLASS: 9, SNOWY: 11, WINDOW: 12, PAINT: 13, METAL: 14, PARTICLE: 15, RAIN: 16 };
-const NMAT = 17;
+const MAT = { PAVE: 0, PLAIN: 1, WATER: 2, FACADE: 3, ASPHALT: 4, GRASS: 5, LEAF: 6, EMIS: 7, BRICK: 8, GLASS: 9, SNOWY: 11, WINDOW: 12, PAINT: 13, METAL: 14, PARTICLE: 15, RAIN: 16, VCOL: 17, VCOLS: 18, VPAINT: 19, VPAINTS: 20 };
+const NMAT = 21;
 
 const lin = (c: number) => c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
 const col = (c: number[]) => new THREE.Color().setRGB(c[0], c[1], c[2], THREE.SRGBColorSpace);
@@ -136,7 +137,7 @@ const FRAG_BODY = `
   }
 #endif
 
-#if MATID != 1 && MATID != 2 && MATID != 12 && MATID != 13 && MATID != 14
+#if MATID != 1 && MATID != 2 && MATID != 12 && MATID != 13 && MATID != 14 && MATID != 17 && MATID != 19
   if ( uSnow > 0.0 ) {
     float cov = uSnow * smoothstep( 0.35, 0.75, nW.y );
   #if MATID == 4
@@ -227,6 +228,18 @@ function blobGeo() {
   g.computeVertexNormals(); return g;
 }
 
+/** Unpack a model written by tools/models.mjs. Vertex colours are stored as sRGB bytes. */
+function modelGeo(name: string) {
+  const m = (MODELS as any)[name], bytes = (s: string) => { const b = atob(s), a = new Uint8Array(b.length); for (let i = 0; i < b.length; i++) a[i] = b.charCodeAt(i); return a; };
+  const p16 = new Int16Array(bytes(m.p).buffer), n8 = new Int8Array(bytes(m.nn).buffer), c8 = bytes(m.c), idx = new Uint16Array(bytes(m.i).buffer);
+  const pos = new Float32Array(p16.length), nor = new Float32Array(n8.length), col = new Float32Array(c8.length);
+  for (let i = 0; i < p16.length; i++) { pos[i] = p16[i] * m.q; nor[i] = n8[i] / 127; col[i] = lin(c8[i] / 255); }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(pos, 3)); g.setAttribute('normal', new THREE.BufferAttribute(nor, 3)); g.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  g.setIndex(new THREE.BufferAttribute(idx, 1));
+  return g;
+}
+
 // --- Materials ------------------------------------------------------------------------------
 
 function makeShared(tx: ReturnType<typeof makeTextures>) {
@@ -241,6 +254,8 @@ function makeMaterial(id: number, shared: any): any {
   if (id === MAT.RAIN) return new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.32, depthWrite: false });
   let m: any;
   if (id === MAT.PAINT) m = new THREE.MeshPhysicalMaterial({ roughness: 0.42, metalness: 0.45, clearcoat: 1, clearcoatRoughness: 0.06 });
+  else if (id === MAT.VPAINT || id === MAT.VPAINTS) m = new THREE.MeshPhysicalMaterial({ roughness: 0.4, metalness: 0.35, clearcoat: 1, clearcoatRoughness: 0.08, vertexColors: true });
+  else if (id === MAT.VCOL || id === MAT.VCOLS) m = new THREE.MeshStandardMaterial({ roughness: 0.55, metalness: 0.1, vertexColors: true });
   else {
     const r: Record<number, number[]> = { 0: [0.86, 0], 1: [0.62, 0], 2: [0.03, 0], 3: [0.82, 0], 4: [0.93, 0], 5: [0.95, 0], 6: [0.88, 0], 8: [0.85, 0], 9: [0.4, 0.2], 11: [0.8, 0], 12: [0.06, 0.85], 14: [0.38, 0.85] };
     const [ro, me] = r[id] || [0.7, 0];
@@ -260,9 +275,10 @@ function makeMaterial(id: number, shared: any): any {
 
 /** One InstancedMesh per (geometry, material) pair, filled from instance lists. */
 class Layer {
-  meshes: any[] = new Array(4 * 32).fill(null);
-  private counts = new Int32Array(4 * 32);
-  constructor(private scene: any, private geos: any[], private mats: any[], private dynamic: boolean, private shadows: boolean, public skip: (key: number) => boolean = () => false) {}
+  meshes: any[]; private counts: Int32Array;
+  constructor(private scene: any, private geos: any[], private mats: any[], private dynamic: boolean, private shadows: boolean, public skip: (key: number) => boolean = () => false) {
+    this.meshes = new Array(geos.length * 32).fill(null); this.counts = new Int32Array(geos.length * 32);
+  }
   fill(lists: [Instances, number | undefined][]) {
     const counts = this.counts; counts.fill(0);
     for (const [list, force] of lists) {
@@ -325,7 +341,8 @@ export class Renderer {
     r.info.autoReset = false;
     const tx = makeTextures(Math.min(8, r.capabilities.getMaxAnisotropy()));
     this.waterTex = tx.water; this.shared = makeShared(tx);
-    this.geos = [new THREE.BoxGeometry(1, 1, 1), wedgeGeo(), blobGeo(), new THREE.CylinderGeometry(0.5, 0.5, 1, 14, 1)];
+    this.geos = [new THREE.BoxGeometry(1, 1, 1), wedgeGeo(), blobGeo(), new THREE.CylinderGeometry(0.5, 0.5, 1, 14, 1), new THREE.SphereGeometry(0.5, 20, 14), new THREE.CapsuleGeometry(0.25, 0.5, 5, 12)];
+    for (const name of MODEL_NAMES) this.geos.push(modelGeo(name));
     for (let i = 0; i < 32; i++) this.mats.push(i < NMAT ? makeMaterial(i === 10 ? 1 : i, this.shared) : null);
 
     const s = this.scene = new THREE.Scene();

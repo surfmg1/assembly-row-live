@@ -1,9 +1,13 @@
 // A growable list of instances: a 4x4 matrix, a colour, a material id and a geometry id each.
 import { M4 } from './mat';
+import { MODEL_NAMES, ModelName } from './models.gen';
 
 export const STRIDE = 21;
 /** Geometry ids: unit box, unit wedge (top rises toward +x), unit-diameter blob, unit cylinder (axis y). */
-export const G = { BOX: 0, WEDGE: 1, BLOB: 2, CYL: 3 } as const;
+export const G = { BOX: 0, WEDGE: 1, BLOB: 2, CYL: 3, SPHERE: 4, CAPS: 5 } as const;
+/** Geometry ids of the imported models follow the primitives. CAPS is a capsule 1 tall and 1 wide at scale 1 (radius 0.25, so scale x and z by twice the wanted radius ratio). */
+export const NPRIM = 6;
+export const GM = (name: ModelName): number => NPRIM + MODEL_NAMES.indexOf(name);
 
 export class Instances {
   data: Float32Array; n = 0;
